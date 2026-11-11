@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { formatFileSizeMB } from "../utils/fileValidation";
 
 export default function AssignmentDetailModal({
   visible,
@@ -19,7 +20,11 @@ export default function AssignmentDetailModal({
   }
 
   const isAnalysisCompleted = assignment.analysisStatus === "Completed";
+  const isAnalysisFailed = assignment.analysisStatus === "Failed";
   const isReviewCompleted = assignment.reviewStatus === "Completed";
+
+  const displayFileName =
+    assignment.originalFileName || assignment.fileName || "";
 
   return (
     <Modal
@@ -78,7 +83,9 @@ export default function AssignmentDetailModal({
                     style={{
                       backgroundColor: isAnalysisCompleted
                         ? "#10B981"
-                        : "#F59E0B",
+                        : isAnalysisFailed
+                          ? "#EF4444"
+                          : "#F59E0B",
                     }}
                     className="w-2 h-2 rounded-full mr-1.5"
                   />
@@ -86,10 +93,12 @@ export default function AssignmentDetailModal({
                     className={`text-[13px] font-bold ${
                       isAnalysisCompleted
                         ? "text-[#10B981]"
-                        : "text-[#F59E0B]"
+                        : isAnalysisFailed
+                          ? "text-[#F87171]"
+                          : "text-[#F59E0B]"
                     }`}
                   >
-                    {assignment.analysisStatus}
+                    {assignment.analysisStatus || "Pending"}
                   </Text>
                 </View>
               </View>
@@ -112,7 +121,7 @@ export default function AssignmentDetailModal({
                       isReviewCompleted ? "text-[#10B981]" : "text-[#F59E0B]"
                     }`}
                   >
-                    {assignment.reviewStatus}
+                    {assignment.reviewStatus || "Pending"}
                   </Text>
                 </View>
               </View>
@@ -124,7 +133,10 @@ export default function AssignmentDetailModal({
                 <Text className="text-[12px] text-[#64748B]">
                   Submission ID
                 </Text>
-                <Text className="text-[12px] font-semibold text-[#E2E8F0]">
+                <Text
+                  className="text-[12px] font-semibold text-[#E2E8F0] max-w-[65%]"
+                  numberOfLines={1}
+                >
                   {assignment.id}
                 </Text>
               </View>
@@ -134,31 +146,57 @@ export default function AssignmentDetailModal({
                   Submitted Date
                 </Text>
                 <Text className="text-[12px] font-semibold text-[#E2E8F0]">
-                  {assignment.submittedDate}
+                  {assignment.submittedDate || "—"}
                 </Text>
               </View>
 
-              {assignment.fileName ? (
+              {displayFileName ? (
                 <View className="flex-row justify-between py-1.5 border-b border-[#161C30]">
                   <Text className="text-[12px] text-[#64748B]">File Name</Text>
                   <Text
                     className="text-[12px] font-semibold text-[#38BDF8] max-w-[60%]"
                     numberOfLines={1}
                   >
-                    {assignment.fileName}
+                    {displayFileName}
                   </Text>
                 </View>
               ) : null}
 
-              {assignment.wordCount ? (
-                <View className="flex-row justify-between py-1.5">
-                  <Text className="text-[12px] text-[#64748B]">Word Count</Text>
+              {assignment.fileCategory ? (
+                <View className="flex-row justify-between py-1.5 border-b border-[#161C30]">
+                  <Text className="text-[12px] text-[#64748B]">
+                    File Format
+                  </Text>
                   <Text className="text-[12px] font-semibold text-[#E2E8F0]">
-                    {assignment.wordCount.toLocaleString()} words
+                    {assignment.fileCategory}
+                    {assignment.fileExtension
+                      ? ` (${assignment.fileExtension})`
+                      : ""}
+                  </Text>
+                </View>
+              ) : null}
+
+              {typeof assignment.fileSize === "number" ? (
+                <View className="flex-row justify-between py-1.5">
+                  <Text className="text-[12px] text-[#64748B]">File Size</Text>
+                  <Text className="text-[12px] font-semibold text-[#E2E8F0]">
+                    {formatFileSizeMB(assignment.fileSize)}
                   </Text>
                 </View>
               ) : null}
             </View>
+
+            {/* Student Submission Notes (if provided) */}
+            {assignment.notes ? (
+              <View className="bg-[#0B0E1B] border border-[#1A2138] rounded-2xl p-4 mb-4">
+                <Text className="text-[11px] font-bold tracking-[0.8px] text-[#94A3B8] uppercase mb-1.5">
+                  Student Notes
+                </Text>
+                <Text className="text-[12.5px] leading-[19px] text-[#CBD5E1]">
+                  {assignment.notes}
+                </Text>
+              </View>
+            ) : null}
 
             {/* Summary Note */}
             <View className="bg-[#0B0E1B] border border-[#1A2138] rounded-2xl p-4 mb-4">
@@ -167,22 +205,22 @@ export default function AssignmentDetailModal({
               </Text>
               <Text className="text-[12.5px] leading-[19px] text-[#CBD5E1]">
                 {assignment.summaryNote ||
-                  "This submission is recorded in your assignment history."}
+                  "Submission received and queued for writing analysis."}
               </Text>
             </View>
 
-            {/* Honest Sample Data & Integrity Note */}
+            {/* Integrity Note */}
             <View className="bg-[#101C2E] border border-[#1E3A5F] rounded-xl p-3 mb-4 flex-row items-start">
               <Ionicons
-                name="information-circle-outline"
+                name="shield-checkmark-outline"
                 size={16}
                 color="#38BDF8"
                 style={{ marginTop: 1, marginRight: 8 }}
               />
               <Text className="flex-1 text-[11.5px] leading-[17px] text-[#94A3B8]">
-                Displayed from the local sample assignment dataset. Detailed
-                sentence-level writing evidence and instructor feedback will
-                appear here once the Submissions API is connected.
+                Verified record from your VeriWrite student account. Writing
+                analysis indicators are always reviewed in academic context by
+                your instructor.
               </Text>
             </View>
           </ScrollView>

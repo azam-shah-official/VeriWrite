@@ -36,8 +36,8 @@ export const parseResetPasswordDeepLink = (url) => {
       return { isResetPasswordRoute: true, token: queryToken };
     }
 
-    // Extract token segment after "reset-password/"
-    const match = url.match(/reset-password\/([^/?#]+)/i);
+    // Extract token segment after "reset-password/" or "reset-password-link/"
+    const match = url.match(/reset-password(?:-link)?\/([^/?#]+)/i);
     if (match && match[1]) {
       const candidate = decodeURIComponent(match[1]).trim();
       return {

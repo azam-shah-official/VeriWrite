@@ -1,5 +1,70 @@
-import { AUTH_ENDPOINTS } from "../config/api";
+import { AUTH_ENDPOINTS, ASSIGNMENT_ENDPOINTS } from "../config/api";
 import { getStoredToken, clearAuthSession } from "./authStorage";
+
+const DEFAULT_UPLOAD_TIMEOUT_MS = 60000; // 60 seconds for up to 10 MB multipart uploads
+
+/**
+ Sends a multipart/form-data request using React Native's native XMLHttpRequest.
+ Expo SDK 58's WinterCG fetch polyfill does not support React Native `{ uri, name, type }`
+ FormData file parts and throws `Unsupported FormDataPart implementation` before sending.
+ Native XMLHttpRequest streams `{ uri, name, type }` parts directly and generates the
+ multipart boundary automatically when Content-Type is omitted.
+ */
+const sendFormDataWithXhr = (
+  url,
+  { method = "POST", headers = {}, body, timeoutMs = DEFAULT_UPLOAD_TIMEOUT_MS }
+) =>
+  new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url, true);
+    xhr.timeout = timeoutMs;
+
+    Object.keys(headers).forEach((headerName) => {
+      // Never manually set Content-Type on FormData; let native XMLHttpRequest generate the boundary
+      if (headerName.toLowerCase() === "content-type") {
+        return;
+      }
+      const headerValue = headers[headerName];
+      if (headerValue !== undefined && headerValue !== null) {
+        xhr.setRequestHeader(headerName, String(headerValue));
+      }
+    });
+
+    xhr.onload = () => {
+      let parsedData = null;
+      try {
+        const rawText =
+          typeof xhr.responseText === "string"
+            ? xhr.responseText
+            : typeof xhr.response === "string"
+              ? xhr.response
+              : "";
+        parsedData = rawText ? JSON.parse(rawText) : null;
+      } catch (_parseErr) {
+        parsedData = null;
+      }
+
+      resolve({
+        status: xhr.status,
+        ok: xhr.status >= 200 && xhr.status < 300,
+        data: parsedData,
+      });
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("NETWORK_ERROR"));
+    };
+
+    xhr.ontimeout = () => {
+      reject(new Error("TIMEOUT_ERROR"));
+    };
+
+    xhr.onabort = () => {
+      reject(new Error("ABORT_ERROR"));
+    };
+
+    xhr.send(body);
+  });
 
 /**
  * Reusable authenticated API request helper.
@@ -41,9 +106,19 @@ export const authenticatedRequest = async (url, options = {}) => {
     ...headers,
   };
 
+  const isFormDataBody =
+    body !== undefined &&
+    body !== null &&
+    typeof FormData !== "undefined" &&
+    body instanceof FormData;
+
   let serializedBody;
   if (body !== undefined && body !== null) {
-    if (typeof body === "string") {
+    if (isFormDataBody) {
+      serializedBody = body;
+      delete requestHeaders["Content-Type"];
+      delete requestHeaders["content-type"];
+    } else if (typeof body === "string") {
       serializedBody = body;
     } else {
       requestHeaders["Content-Type"] =
@@ -53,20 +128,37 @@ export const authenticatedRequest = async (url, options = {}) => {
   }
 
   try {
-    const response = await fetch(url, {
-      method,
-      headers: requestHeaders,
-      ...(serializedBody !== undefined ? { body: serializedBody } : {}),
-    });
-
+    let responseStatus;
+    let responseOk;
     let data = null;
-    try {
-      data = await response.json();
-    } catch (_parseErr) {
-      data = null;
+
+    if (isFormDataBody) {
+      const xhrResult = await sendFormDataWithXhr(url, {
+        method,
+        headers: requestHeaders,
+        body: serializedBody,
+      });
+      responseStatus = xhrResult.status;
+      responseOk = xhrResult.ok;
+      data = xhrResult.data;
+    } else {
+      const response = await fetch(url, {
+        method,
+        headers: requestHeaders,
+        ...(serializedBody !== undefined ? { body: serializedBody } : {}),
+      });
+
+      responseStatus = response.status;
+      responseOk = response.ok;
+
+      try {
+        data = await response.json();
+      } catch (_parseErr) {
+        data = null;
+      }
     }
 
-    if (response.status === 401) {
+    if (responseStatus === 401) {
       await clearAuthSession();
       if (typeof onUnauthorized === "function") {
         onUnauthorized();
@@ -83,7 +175,7 @@ export const authenticatedRequest = async (url, options = {}) => {
       };
     }
 
-    if (response.status === 403) {
+    if (responseStatus === 403) {
       if (typeof onForbidden === "function") {
         onForbidden(data);
       }
@@ -101,13 +193,24 @@ export const authenticatedRequest = async (url, options = {}) => {
     }
 
     return {
-      ok: response.ok && Boolean(data?.success !== false),
-      status: response.status,
+      ok: responseOk && Boolean(data?.success !== false),
+      status: responseStatus,
       isUnauthorized: false,
       isForbidden: false,
       data,
     };
-  } catch (_networkError) {
+  } catch (requestError) {
+    const errorCode = requestError?.message || "";
+    let errorMessage =
+      "Unable to connect to the VeriWrite server. Ensure the backend is running and your device is on the same Wi-Fi network.";
+
+    if (errorCode === "TIMEOUT_ERROR") {
+      errorMessage =
+        "The upload request timed out. Please check your Wi-Fi connection and try again.";
+    } else if (errorCode === "ABORT_ERROR") {
+      errorMessage = "The upload request was cancelled. Please try again.";
+    }
+
     return {
       ok: false,
       status: 0,
@@ -116,8 +219,7 @@ export const authenticatedRequest = async (url, options = {}) => {
       isNetworkError: true,
       data: {
         success: false,
-        message:
-          "Unable to connect to the VeriWrite server. Ensure the backend is running and your device is on the same Wi-Fi network.",
+        message: errorMessage,
       },
     };
   }
@@ -125,6 +227,13 @@ export const authenticatedRequest = async (url, options = {}) => {
 
 export const fetchCurrentUserProfile = async (options = {}) => {
   return authenticatedRequest(AUTH_ENDPOINTS.ME, {
+    method: "GET",
+    ...options,
+  });
+};
+
+export const fetchMyAssignments = async (options = {}) => {
+  return authenticatedRequest(ASSIGNMENT_ENDPOINTS.MY_ASSIGNMENTS, {
     method: "GET",
     ...options,
   });

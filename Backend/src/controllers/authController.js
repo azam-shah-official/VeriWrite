@@ -1,9 +1,14 @@
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
-import { sendPasswordResetEmail } from "../utils/sendEmail.js";
+import {
+  sendPasswordResetEmail,
+  escapeHtml,
+  getResetPasswordBaseDeepLink,
+} from "../utils/sendEmail.js";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RESET_TOKEN_HEX_REGEX = /^[a-f0-9]{64}$/i;
 const ALLOWED_ROLES = ["TEACHER", "STUDENT"];
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
@@ -349,6 +354,79 @@ export const forgotPassword = async (req, res) => {
       message: "Internal server error while processing password reset request.",
     });
   }
+};
+
+export const openResetPasswordLink = (req, res) => {
+  res.set({
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store, no-cache, must-revalidate, private",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+  });
+
+  const rawToken = typeof req.params?.token === "string" ? req.params.token.trim() : "";
+
+  if (!rawToken || !RESET_TOKEN_HEX_REGEX.test(rawToken)) {
+    return res.status(400).send(`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Invalid Password Reset Link — VeriWrite</title>
+  </head>
+  <body style="margin: 0; padding: 24px; background-color: #0A0D1A; color: #E2E8F0; font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 90vh;">
+    <div style="max-width: 460px; width: 100%; background-color: #15182B; border: 1px solid #232944; border-radius: 20px; padding: 28px; text-align: center;">
+      <h2 style="color: #FFFFFF; margin-top: 0;">Invalid Password Reset Link</h2>
+      <p style="color: #FCA5A5; font-size: 14px; line-height: 1.6;">
+        This password reset link is missing or malformed. Please return to the VeriWrite mobile app and request a new password reset email.
+      </p>
+    </div>
+  </body>
+</html>`);
+  }
+
+  const baseDeepLink = getResetPasswordBaseDeepLink();
+  const encodedToken = encodeURIComponent(rawToken);
+  const expoDeepLink = `${baseDeepLink}/${encodedToken}`;
+  const escapedDeepLink = escapeHtml(expoDeepLink);
+  const jsDeepLinkLiteral = JSON.stringify(expoDeepLink);
+
+  return res.status(200).send(`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="refresh" content="0;url=${escapedDeepLink}" />
+    <title>Opening VeriWrite Password Reset...</title>
+  </head>
+  <body style="margin: 0; padding: 20px; background-color: #0A0D1A; color: #E2E8F0; font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 90vh;">
+    <div style="max-width: 480px; width: 100%; background-color: #15182B; border: 1px solid #232944; border-radius: 20px; padding: 28px; text-align: center; box-sizing: border-box;">
+      <h2 style="color: #FFFFFF; margin-top: 0; margin-bottom: 10px;">VeriWrite Password Reset</h2>
+      <p style="color: #94A3B8; font-size: 14px; line-height: 1.6; margin-bottom: 22px;">
+        Redirecting you to the VeriWrite mobile app to set your new password...
+      </p>
+      <p style="margin: 22px 0;">
+        <a id="open-app-btn" href="${escapedDeepLink}" style="display: inline-block; padding: 13px 26px; background-color: #4F46E5; background-image: linear-gradient(90deg, #5B50EB, #38BDF8); color: #FFFFFF; text-decoration: none; font-weight: bold; border-radius: 12px; font-size: 15px;">
+          Open VeriWrite App
+        </a>
+      </p>
+      <p style="color: #CBD5E1; font-size: 12.5px; line-height: 1.6; margin-top: 20px; margin-bottom: 10px;">
+        If the VeriWrite app does not open automatically, tap <strong>Open VeriWrite App</strong> above, or ensure <strong>Expo Go</strong> is installed on your phone and connected to the same Wi-Fi network, then copy and open the link below:
+      </p>
+      <p style="background-color: #101323; border: 1px solid #283254; border-radius: 10px; padding: 12px; margin: 0; color: #38BDF8; font-family: monospace; font-size: 12px; line-height: 1.5; word-break: break-all; user-select: all; -webkit-user-select: all;">${escapedDeepLink}</p>
+    </div>
+    <script>
+      (function () {
+        var targetUrl = ${jsDeepLinkLiteral};
+        try {
+          window.location.replace(targetUrl);
+        } catch (_e) {
+          window.location.href = targetUrl;
+        }
+      })();
+    </script>
+  </body>
+</html>`);
 };
 
 export const resetPassword = async (req, res) => {

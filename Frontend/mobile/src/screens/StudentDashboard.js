@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,10 +13,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import AssignmentCard from "../components/AssignmentCard";
 import AssignmentDetailModal from "../components/AssignmentDetailModal";
-import {
-  SAMPLE_STUDENT_ASSIGNMENTS,
-  calculateAssignmentStats,
-} from "../data/studentAssignmentsData";
+import UploadAssignmentScreen from "./UploadAssignmentScreen";
+import { calculateAssignmentStats } from "../data/studentAssignmentsData";
+import { fetchMyAssignments } from "../utils/apiClient";
 
 const TABS = {
   OVERVIEW: "OVERVIEW",
@@ -34,20 +33,67 @@ const PAPER_FILTERS = {
 
 export default function StudentDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState(TABS.OVERVIEW);
+  const [isUploadScreenOpen, setIsUploadScreenOpen] = useState(false);
+  const [isUploadingInFlight, setIsUploadingInFlight] = useState(false);
   const [paperFilter, setPaperFilter] = useState(PAPER_FILTERS.ALL);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  // Local sample assignments dataset (ready to be replaced by API data later)
-  const assignments = SAMPLE_STUDENT_ASSIGNMENTS;
+  // Real assignments state fetched from GET /api/assignments/my
+  const [assignments, setAssignments] = useState([]);
+  const [isLoadingAssignments, setIsLoadingAssignments] = useState(true);
+  const [assignmentsError, setAssignmentsError] = useState("");
+  const [hasSyncedWithBackend, setHasSyncedWithBackend] = useState(false);
 
-  // Dynamically calculate all statistics from the assignment dataset
+  const loadStudentAssignments = useCallback(async () => {
+    setIsLoadingAssignments(true);
+    setAssignmentsError("");
+
+    try {
+      const response = await fetchMyAssignments({
+        onUnauthorized: () => {
+          if (onLogout) {
+            onLogout();
+          }
+        },
+      });
+
+      if (response.isUnauthorized) {
+        return;
+      }
+
+      if (response.ok && Array.isArray(response.data?.assignments)) {
+        setAssignments(response.data.assignments);
+        setHasSyncedWithBackend(true);
+        setAssignmentsError("");
+      } else {
+        setHasSyncedWithBackend(false);
+        setAssignmentsError(
+          response.data?.message ||
+            "Unable to load your assignments. Please try again."
+        );
+      }
+    } catch (_err) {
+      setHasSyncedWithBackend(false);
+      setAssignmentsError(
+        "Unable to connect to the VeriWrite server. Please check your connection and try again."
+      );
+    } finally {
+      setIsLoadingAssignments(false);
+    }
+  }, [onLogout]);
+
+  useEffect(() => {
+    loadStudentAssignments();
+  }, [loadStudentAssignments]);
+
+  // Dynamically calculate all statistics from the live assignment array
   const stats = useMemo(
     () => calculateAssignmentStats(assignments),
     [assignments]
   );
 
-  // Filtered assignments for the Papers tab
+  // Filtered assignments for the Papers tab (maps backend analysisStatus & reviewStatus)
   const filteredPapers = useMemo(() => {
     if (paperFilter === PAPER_FILTERS.RECENT) {
       return stats.recentAssignments;
@@ -69,13 +115,20 @@ export default function StudentDashboard({ user, onLogout }) {
     return assignments;
   }, [assignments, paperFilter, stats.recentAssignments]);
 
-  // Prevent Android hardware back button from leaving the dashboard unless closing modal or returning to Overview tab
+  // Prevent Android hardware back button from leaving the dashboard unless closing modal/upload screen or returning to Overview tab
   useEffect(() => {
     const backSubscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
+        if (isUploadingInFlight) {
+          return true;
+        }
         if (selectedAssignment) {
           setSelectedAssignment(null);
+          return true;
+        }
+        if (isUploadScreenOpen) {
+          setIsUploadScreenOpen(false);
           return true;
         }
         if (activeTab !== TABS.OVERVIEW) {
@@ -86,7 +139,15 @@ export default function StudentDashboard({ user, onLogout }) {
       }
     );
     return () => backSubscription.remove();
-  }, [activeTab, selectedAssignment]);
+  }, [activeTab, isUploadScreenOpen, isUploadingInFlight, selectedAssignment]);
+
+  const handleUploadSuccess = useCallback(async () => {
+    await loadStudentAssignments();
+    setPaperFilter(PAPER_FILTERS.ALL);
+    setIsUploadingInFlight(false);
+    setIsUploadScreenOpen(false);
+    setActiveTab(TABS.PAPERS);
+  }, [loadStudentAssignments]);
 
   const handleLogoutPress = async () => {
     if (isLoggingOut) {
@@ -127,22 +188,92 @@ export default function StudentDashboard({ user, onLogout }) {
 
       {/* Right: Portal Status Badge & Profile Icon Button */}
       <View className="flex-row items-center">
-        <View className="flex-row items-center bg-[#0B2220] border border-[#143D37] rounded-full px-2.5 py-1 mr-2.5">
-          <View className="w-1.5 h-1.5 rounded-full bg-[#10B981] mr-1.5" />
-          <Text className="text-[9.5px] font-bold tracking-[0.8px] text-[#34D399] uppercase">
-            SAMPLE DATA
-          </Text>
-        </View>
+        {hasSyncedWithBackend ? (
+          <View className="flex-row items-center bg-[#0B2220] border border-[#143D37] rounded-full px-2.5 py-1 mr-2.5">
+            <View className="w-1.5 h-1.5 rounded-full bg-[#10B981] mr-1.5" />
+            <Text className="text-[9.5px] font-bold tracking-[0.8px] text-[#34D399] uppercase">
+              LIVE SYNC
+            </Text>
+          </View>
+        ) : isLoadingAssignments ? (
+          <View className="flex-row items-center bg-[#112236] border border-[#1B3552] rounded-full px-2.5 py-1 mr-2.5">
+            <View className="w-1.5 h-1.5 rounded-full bg-[#38BDF8] mr-1.5" />
+            <Text className="text-[9.5px] font-bold tracking-[0.8px] text-[#38BDF8] uppercase">
+              SYNCING...
+            </Text>
+          </View>
+        ) : (
+          <Pressable
+            onPress={loadStudentAssignments}
+            className="flex-row items-center bg-[#2A2012] border border-[#453318] rounded-full px-2.5 py-1 mr-2.5 active:opacity-80"
+            accessibilityRole="button"
+            accessibilityLabel="Retry syncing assignments"
+          >
+            <View className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] mr-1.5" />
+            <Text className="text-[9.5px] font-bold tracking-[0.8px] text-[#FBBF24] uppercase">
+              RETRY SYNC
+            </Text>
+          </Pressable>
+        )}
 
         <Pressable
-          onPress={() => setActiveTab(TABS.ACCOUNT)}
-          className="w-8 h-8 rounded-full bg-[#C7D2FE] items-center justify-center active:opacity-80"
+          onPress={() => {
+            if (isUploadingInFlight) {
+              return;
+            }
+            setIsUploadScreenOpen(false);
+            setActiveTab(TABS.ACCOUNT);
+          }}
+          disabled={isUploadingInFlight}
+          className={`w-8 h-8 rounded-full bg-[#C7D2FE] items-center justify-center ${
+            isUploadingInFlight ? "opacity-50" : "active:opacity-80"
+          }`}
           accessibilityRole="button"
           accessibilityLabel="Open Student Account tab"
         >
           <Ionicons name="person-outline" size={16} color="#1E1B4B" />
         </Pressable>
       </View>
+    </View>
+  );
+
+  const renderLoadingCard = (message = "Loading your assignments...") => (
+    <View className="bg-[#14192C] border border-[#222943] rounded-[20px] p-6 items-center my-1">
+      <ActivityIndicator size="small" color="#38BDF8" />
+      <Text className="text-[13px] font-semibold text-[#CBD5E1] mt-3">
+        {message}
+      </Text>
+    </View>
+  );
+
+  const renderErrorCard = () => (
+    <View className="bg-[#261219] border border-[#EF4444]/40 rounded-[20px] p-5 items-center my-1">
+      <Ionicons
+        name="alert-circle-outline"
+        size={26}
+        color="#F87171"
+        style={{ marginBottom: 8 }}
+      />
+      <Text className="text-[14.5px] font-bold text-white mb-1 text-center">
+        Unable to Load Assignments
+      </Text>
+      <Text className="text-[12px] leading-[18px] text-[#FECACA] text-center mb-4">
+        {assignmentsError}
+      </Text>
+      <Pressable
+        onPress={loadStudentAssignments}
+        className="px-4 py-2 rounded-xl bg-[#1E294B] border border-[#38BDF8] flex-row items-center active:opacity-80"
+        accessibilityRole="button"
+        accessibilityLabel="Retry loading assignments"
+      >
+        <Ionicons
+          name="refresh-outline"
+          size={14}
+          color="#38BDF8"
+          style={{ marginRight: 6 }}
+        />
+        <Text className="text-[12px] font-bold text-white">Retry</Text>
+      </Pressable>
     </View>
   );
 
@@ -245,6 +376,25 @@ export default function StudentDashboard({ user, onLogout }) {
         </View>
       </View>
 
+      {/* Upload Assignment Action Card */}
+      <Pressable
+        onPress={() => setIsUploadScreenOpen(true)}
+        className="w-full h-[46px] bg-[#16203D] border border-[#293B6B] rounded-xl flex-row items-center justify-center mb-6 active:opacity-85"
+        accessibilityRole="button"
+        accessibilityLabel="Open Upload Assignment screen"
+      >
+        <Ionicons
+          name="cloud-upload-outline"
+          size={17}
+          color="#38BDF8"
+          style={{ marginRight: 8 }}
+        />
+        <Text className="text-[13.5px] font-bold text-white mr-1.5">
+          Upload Assignment
+        </Text>
+        <Ionicons name="arrow-forward" size={15} color="#38BDF8" />
+      </Pressable>
+
       {/* Recent Assignments Section Header */}
       <View className="flex-row items-center justify-between mb-3.5">
         <Text className="text-[17px] font-bold text-white">
@@ -256,8 +406,12 @@ export default function StudentDashboard({ user, onLogout }) {
         </Text>
       </View>
 
-      {/* Recent Assignment Cards */}
-      {stats.recentAssignments.length > 0 ? (
+      {/* Recent Assignment Cards / Loading / Error / Empty State */}
+      {isLoadingAssignments ? (
+        renderLoadingCard("Loading recent assignments...")
+      ) : assignmentsError ? (
+        renderErrorCard()
+      ) : stats.recentAssignments.length > 0 ? (
         stats.recentAssignments.map((assignment) => (
           <AssignmentCard
             key={assignment.id}
@@ -274,11 +428,21 @@ export default function StudentDashboard({ user, onLogout }) {
             style={{ marginBottom: 8 }}
           />
           <Text className="text-[14px] font-bold text-white mb-1">
-            No Recent Assignments
+            No Assignments Submitted Yet
           </Text>
-          <Text className="text-[12px] text-[#8E96B0] text-center">
-            Your submitted papers and writing analyses will appear here.
+          <Text className="text-[12px] text-[#8E96B0] text-center mb-4">
+            Your submitted papers and writing analyses will appear here once
+            uploaded.
           </Text>
+          <Pressable
+            onPress={() => setIsUploadScreenOpen(true)}
+            className="px-4 py-2 rounded-xl bg-[#1E294B] border border-[#38BDF8]"
+            accessibilityRole="button"
+          >
+            <Text className="text-[12px] font-bold text-white">
+              Upload Your First Assignment
+            </Text>
+          </Pressable>
         </View>
       )}
     </ScrollView>
@@ -303,12 +467,40 @@ export default function StudentDashboard({ user, onLogout }) {
         </Text>
       </View>
 
-      <Text className="text-[22px] font-bold text-white mb-1">
-        Submitted Papers
-      </Text>
+      <View className="flex-row items-center justify-between mb-1">
+        <Text className="text-[22px] font-bold text-white">
+          Submitted Papers
+        </Text>
+        <View className="flex-row items-center">
+          <Pressable
+            onPress={loadStudentAssignments}
+            disabled={isLoadingAssignments}
+            className="w-8 h-8 rounded-xl bg-[#14192C] border border-[#222943] items-center justify-center mr-2 active:opacity-80"
+            accessibilityRole="button"
+            accessibilityLabel="Refresh assignments"
+          >
+            <Ionicons name="refresh-outline" size={15} color="#94A3B8" />
+          </Pressable>
+          <Pressable
+            onPress={() => setIsUploadScreenOpen(true)}
+            className="flex-row items-center bg-[#16203D] border border-[#293B6B] rounded-xl px-3 py-1.5 active:opacity-85"
+            accessibilityRole="button"
+            accessibilityLabel="Upload Assignment"
+          >
+            <Ionicons
+              name="cloud-upload-outline"
+              size={14}
+              color="#38BDF8"
+              style={{ marginRight: 5 }}
+            />
+            <Text className="text-[11.5px] font-bold text-white">Upload</Text>
+          </Pressable>
+        </View>
+      </View>
       <Text className="text-[13px] text-[#8E96B0] mb-4">
-        Browse all {stats.totalSubmitted} sample academic submissions and their
-        verification status.
+        Browse your {stats.totalSubmitted} submitted{" "}
+        {stats.totalSubmitted === 1 ? "assignment" : "assignments"} and track
+        their verification status.
       </Text>
 
       {/* Filter Pills */}
@@ -360,8 +552,38 @@ export default function StudentDashboard({ user, onLogout }) {
         })}
       </ScrollView>
 
-      {/* Assignment List or Empty State */}
-      {filteredPapers.length > 0 ? (
+      {/* Assignment List / Loading / Error / Empty States */}
+      {isLoadingAssignments ? (
+        renderLoadingCard("Loading your submitted papers...")
+      ) : assignmentsError ? (
+        renderErrorCard()
+      ) : assignments.length === 0 ? (
+        <View className="bg-[#14192C] border border-[#222943] rounded-[20px] p-6 items-center mt-2">
+          <View className="w-12 h-12 rounded-2xl bg-[#0C0F1D] border border-[#192036] items-center justify-center mb-3">
+            <Ionicons
+              name="document-text-outline"
+              size={24}
+              color="#38BDF8"
+            />
+          </View>
+          <Text className="text-[15px] font-bold text-white mb-1">
+            No Submissions Found
+          </Text>
+          <Text className="text-[12.5px] text-[#8E96B0] text-center mb-4">
+            You have not uploaded any assignments yet. Upload a paper to start
+            writing analysis.
+          </Text>
+          <Pressable
+            onPress={() => setIsUploadScreenOpen(true)}
+            className="px-4 py-2 rounded-xl bg-[#1E294B] border border-[#38BDF8]"
+            accessibilityRole="button"
+          >
+            <Text className="text-[12px] font-bold text-white">
+              Upload Assignment
+            </Text>
+          </Pressable>
+        </View>
+      ) : filteredPapers.length > 0 ? (
         filteredPapers.map((assignment) => (
           <AssignmentCard
             key={assignment.id}
@@ -627,8 +849,17 @@ export default function StudentDashboard({ user, onLogout }) {
           return (
             <Pressable
               key={item.key}
-              onPress={() => setActiveTab(item.key)}
-              className="flex-1 items-center justify-center py-1 active:opacity-80"
+              onPress={() => {
+                if (isUploadingInFlight) {
+                  return;
+                }
+                setIsUploadScreenOpen(false);
+                setActiveTab(item.key);
+              }}
+              disabled={isUploadingInFlight}
+              className={`flex-1 items-center justify-center py-1 ${
+                isUploadingInFlight ? "opacity-50" : "active:opacity-80"
+              }`}
               accessibilityRole="tab"
               accessibilityState={{ selected: isActive }}
               accessibilityLabel={`${item.label} tab`}
@@ -666,12 +897,27 @@ export default function StudentDashboard({ user, onLogout }) {
         {/* Top Branding & Portal Bar */}
         {renderTopBar()}
 
-        {/* Active Tab Content */}
+        {/* Active Tab or Upload Assignment Screen */}
         <View className="flex-1">
-          {activeTab === TABS.OVERVIEW && renderOverviewTab()}
-          {activeTab === TABS.PAPERS && renderPapersTab()}
-          {activeTab === TABS.INTEGRITY && renderIntegrityTab()}
-          {activeTab === TABS.ACCOUNT && renderAccountTab()}
+          {isUploadScreenOpen ? (
+            <UploadAssignmentScreen
+              onBack={() => {
+                if (!isUploadingInFlight) {
+                  setIsUploadScreenOpen(false);
+                }
+              }}
+              onUploadSuccess={handleUploadSuccess}
+              onUnauthorized={onLogout}
+              onUploadingChange={setIsUploadingInFlight}
+            />
+          ) : (
+            <>
+              {activeTab === TABS.OVERVIEW && renderOverviewTab()}
+              {activeTab === TABS.PAPERS && renderPapersTab()}
+              {activeTab === TABS.INTEGRITY && renderIntegrityTab()}
+              {activeTab === TABS.ACCOUNT && renderAccountTab()}
+            </>
+          )}
         </View>
 
         {/* Fixed Bottom Navigation Bar */}

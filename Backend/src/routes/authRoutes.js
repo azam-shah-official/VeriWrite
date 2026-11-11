@@ -3,6 +3,7 @@ import {
   register,
   login,
   forgotPassword,
+  openResetPasswordLink,
   resetPassword,
   getMe,
 } from "../controllers/authController.js";
@@ -14,6 +15,7 @@ const router = express.Router();
 router.post("/register", register);
 router.post("/login", login);
 router.post("/forgot-password", forgotPasswordRateLimiter, forgotPassword);
+router.get("/reset-password-link/:token", openResetPasswordLink);
 router.post("/reset-password/:token", resetPassword);
 router.get("/me", protect, getMe);
 

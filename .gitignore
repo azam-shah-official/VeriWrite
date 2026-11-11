@@ -1,4 +1,3 @@
-
 # Environment variables and secrets
 .env
 .env.*
@@ -23,3 +22,7 @@ npm-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
+
+# Private uploaded files storage
+Backend/storage/
+!Backend/storage/assignments/.gitkeep

@@ -16,6 +16,11 @@ export const AUTH_ENDPOINTS = {
   ME: `${API_BASE_URL}/auth/me`,
 };
 
+export const ASSIGNMENT_ENDPOINTS = {
+  MY_ASSIGNMENTS: `${API_BASE_URL}/assignments/my`,
+  UPLOAD: `${API_BASE_URL}/assignments/upload`,
+};
+
 export const PROTECTED_ENDPOINTS = {
   STUDENT_TEST: `${API_BASE_URL}/student/protected-test`,
   TEACHER_TEST: `${API_BASE_URL}/teacher/protected-test`,

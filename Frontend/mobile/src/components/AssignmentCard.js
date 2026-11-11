@@ -9,6 +9,12 @@ const getStatusAppearance = (statusText) => {
       textColorClass: "text-[#10B981]",
     };
   }
+  if (statusText === "Failed") {
+    return {
+      dotColor: "#EF4444",
+      textColorClass: "text-[#F87171]",
+    };
+  }
   return {
     dotColor: "#F59E0B",
     textColorClass: "text-[#F59E0B]",
@@ -16,8 +22,10 @@ const getStatusAppearance = (statusText) => {
 };
 
 export default function AssignmentCard({ assignment, onPressDetails }) {
-  const analysisAppearance = getStatusAppearance(assignment.analysisStatus);
-  const reviewAppearance = getStatusAppearance(assignment.reviewStatus);
+  const analysisStatus = assignment.analysisStatus || "Pending";
+  const reviewStatus = assignment.reviewStatus || "Pending";
+  const analysisAppearance = getStatusAppearance(analysisStatus);
+  const reviewAppearance = getStatusAppearance(reviewStatus);
 
   return (
     <View className="bg-[#14192C] border border-[#222943] rounded-[20px] p-4 mb-3.5">
@@ -35,7 +43,7 @@ export default function AssignmentCard({ assignment, onPressDetails }) {
           style={{ marginRight: 6 }}
         />
         <Text className="text-[12px] text-[#8E96B0]">
-          {assignment.submittedDate}
+          {assignment.submittedDate || "—"}
         </Text>
       </View>
 
@@ -54,7 +62,7 @@ export default function AssignmentCard({ assignment, onPressDetails }) {
             <Text
               className={`text-[12px] font-semibold ${analysisAppearance.textColorClass}`}
             >
-              {assignment.analysisStatus}
+              {analysisStatus}
             </Text>
           </View>
         </View>
@@ -72,7 +80,7 @@ export default function AssignmentCard({ assignment, onPressDetails }) {
             <Text
               className={`text-[12px] font-semibold ${reviewAppearance.textColorClass}`}
             >
-              {assignment.reviewStatus}
+              {reviewStatus}
             </Text>
           </View>
         </View>
