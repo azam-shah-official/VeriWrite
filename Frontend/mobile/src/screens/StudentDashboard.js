@@ -13,6 +13,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import AssignmentCard from "../components/AssignmentCard";
 import AssignmentDetailModal from "../components/AssignmentDetailModal";
+import AnalyzingProgressModal from "../components/AnalyzingProgressModal";
+import AnalysisReportModal from "../components/AnalysisReportModal";
 import UploadAssignmentScreen from "./UploadAssignmentScreen";
 import { calculateAssignmentStats } from "../data/studentAssignmentsData";
 import { fetchMyAssignments } from "../utils/apiClient";
@@ -37,6 +39,9 @@ export default function StudentDashboard({ user, onLogout }) {
   const [isUploadingInFlight, setIsUploadingInFlight] = useState(false);
   const [paperFilter, setPaperFilter] = useState(PAPER_FILTERS.ALL);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
+  const [analyzingAssignment, setAnalyzingAssignment] = useState(null);
+  const [isForceReanalysis, setIsForceReanalysis] = useState(false);
+  const [reportAssignment, setReportAssignment] = useState(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Real assignments state fetched from GET /api/assignments/my
@@ -143,6 +148,14 @@ export default function StudentDashboard({ user, onLogout }) {
         if (isUploadingInFlight) {
           return true;
         }
+        if (reportAssignment) {
+          setReportAssignment(null);
+          return true;
+        }
+        if (analyzingAssignment) {
+          setAnalyzingAssignment(null);
+          return true;
+        }
         if (selectedAssignment) {
           setSelectedAssignment(null);
           return true;
@@ -159,7 +172,50 @@ export default function StudentDashboard({ user, onLogout }) {
       }
     );
     return () => backSubscription.remove();
-  }, [activeTab, isUploadScreenOpen, isUploadingInFlight, selectedAssignment]);
+  }, [
+    activeTab,
+    analyzingAssignment,
+    isUploadScreenOpen,
+    isUploadingInFlight,
+    reportAssignment,
+    selectedAssignment,
+  ]);
+
+  const handleStartAnalysis = useCallback(
+    (assignment, forceReanalysis = false) => {
+      setSelectedAssignment(null);
+      setIsForceReanalysis(forceReanalysis);
+      setAnalyzingAssignment(assignment);
+    },
+    []
+  );
+
+  const handleAnalysisComplete = useCallback((updatedAssignment) => {
+    if (updatedAssignment && updatedAssignment.id) {
+      setAssignments((prev) =>
+        prev.map((item) =>
+          item.id === updatedAssignment.id
+            ? { ...item, ...updatedAssignment }
+            : item
+        )
+      );
+      setReportAssignment(updatedAssignment);
+    }
+    setAnalyzingAssignment(null);
+  }, []);
+
+  const handleViewReport = useCallback((assignment) => {
+    setSelectedAssignment(null);
+    setReportAssignment(assignment);
+  }, []);
+
+  const handleReanalyzeFromReport = useCallback(
+    (assignment) => {
+      setReportAssignment(null);
+      handleStartAnalysis(assignment, true);
+    },
+    [handleStartAnalysis]
+  );
 
   const handleUploadSuccess = useCallback(async () => {
     await loadStudentAssignments();
@@ -437,6 +493,8 @@ export default function StudentDashboard({ user, onLogout }) {
             key={assignment.id}
             assignment={assignment}
             onPressDetails={(item) => setSelectedAssignment(item)}
+            onPressAnalyze={(item) => handleStartAnalysis(item, false)}
+            onPressReport={(item) => handleViewReport(item)}
           />
         ))
       ) : (
@@ -609,6 +667,8 @@ export default function StudentDashboard({ user, onLogout }) {
             key={assignment.id}
             assignment={assignment}
             onPressDetails={(item) => setSelectedAssignment(item)}
+            onPressAnalyze={(item) => handleStartAnalysis(item, false)}
+            onPressReport={(item) => handleViewReport(item)}
           />
         ))
       ) : (
@@ -951,6 +1011,31 @@ export default function StudentDashboard({ user, onLogout }) {
         visible={Boolean(selectedAssignment)}
         assignment={selectedAssignment}
         onClose={() => setSelectedAssignment(null)}
+        onAnalyze={(item) => handleStartAnalysis(item, false)}
+        onViewReport={(item) => handleViewReport(item)}
+      />
+
+      {/* Analyzing Progress Modal (Pipeline Telemetry & Diagnostics) */}
+      <AnalyzingProgressModal
+        visible={Boolean(analyzingAssignment)}
+        assignment={analyzingAssignment}
+        forceReanalysis={isForceReanalysis}
+        onClose={() => setAnalyzingAssignment(null)}
+        onAnalysisComplete={handleAnalysisComplete}
+        onUnauthorized={() => {
+          setAnalyzingAssignment(null);
+          if (onLogout) {
+            onLogout();
+          }
+        }}
+      />
+
+      {/* Analysis Report Modal (Indicators & Evidence Inspection) */}
+      <AnalysisReportModal
+        visible={Boolean(reportAssignment)}
+        assignment={reportAssignment}
+        onClose={() => setReportAssignment(null)}
+        onReanalyze={handleReanalyzeFromReport}
       />
     </View>
   );

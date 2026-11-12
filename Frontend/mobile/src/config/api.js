@@ -19,6 +19,8 @@ export const AUTH_ENDPOINTS = {
 export const ASSIGNMENT_ENDPOINTS = {
   MY_ASSIGNMENTS: `${API_BASE_URL}/assignments/my`,
   UPLOAD: `${API_BASE_URL}/assignments/upload`,
+  ANALYZE: (id) =>
+    `${API_BASE_URL}/assignments/${encodeURIComponent(id)}/analyze`,
 };
 
 export const PROTECTED_ENDPOINTS = {

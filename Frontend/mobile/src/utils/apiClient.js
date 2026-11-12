@@ -238,3 +238,12 @@ export const fetchMyAssignments = async (options = {}) => {
     ...options,
   });
 };
+
+export const triggerWritingAnalysis = async (assignmentId, options = {}) => {
+  const { forceReanalysis = false, ...restOptions } = options;
+  return authenticatedRequest(ASSIGNMENT_ENDPOINTS.ANALYZE(assignmentId), {
+    method: "POST",
+    body: { forceReanalysis },
+    ...restOptions,
+  });
+};

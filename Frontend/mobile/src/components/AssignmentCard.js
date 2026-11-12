@@ -34,7 +34,12 @@ const formatExtractionLabel = (status) => {
   return status || "Pending";
 };
 
-export default function AssignmentCard({ assignment, onPressDetails }) {
+export default function AssignmentCard({
+  assignment,
+  onPressDetails,
+  onPressAnalyze,
+  onPressReport,
+}) {
   const extractionStatus = assignment.extractionStatus || "Pending";
   const analysisStatus = assignment.analysisStatus || "Pending";
   const reviewStatus = assignment.reviewStatus || "Pending";
@@ -42,6 +47,10 @@ export default function AssignmentCard({ assignment, onPressDetails }) {
   const extractionAppearance = getStatusAppearance(extractionStatus);
   const analysisAppearance = getStatusAppearance(analysisStatus);
   const reviewAppearance = getStatusAppearance(reviewStatus);
+
+  const canShowAction =
+    (analysisStatus === "Completed" && typeof onPressReport === "function") ||
+    (extractionStatus === "Completed" && typeof onPressAnalyze === "function");
 
   return (
     <View className="bg-[#14192C] border border-[#222943] rounded-[20px] p-4 mb-3.5">
@@ -150,18 +159,58 @@ export default function AssignmentCard({ assignment, onPressDetails }) {
         </View>
       </View>
 
-      {/* View Details Button */}
-      <Pressable
-        onPress={() => onPressDetails && onPressDetails(assignment)}
-        className="w-full h-[42px] bg-[#080B14] border border-[#1A2138] rounded-xl flex-row items-center justify-center active:opacity-80"
-        accessibilityRole="button"
-        accessibilityLabel={`View details for ${assignment.title}`}
-      >
-        <Text className="text-[13px] font-bold text-white mr-1.5">
-          View Details
-        </Text>
-        <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
-      </Pressable>
+      {/* Action Buttons */}
+      <View className="flex-row items-center">
+        {analysisStatus === "Completed" && typeof onPressReport === "function" ? (
+          <Pressable
+            onPress={() => onPressReport(assignment)}
+            className="flex-1 h-[42px] bg-[#16203D] border border-[#293B6B] rounded-xl flex-row items-center justify-center mr-2 active:opacity-85"
+            accessibilityRole="button"
+            accessibilityLabel={`View analysis report for ${assignment.title}`}
+          >
+            <Ionicons
+              name="analytics-outline"
+              size={14}
+              color="#38BDF8"
+              style={{ marginRight: 6 }}
+            />
+            <Text className="text-[12.5px] font-bold text-white">
+              View Report
+            </Text>
+          </Pressable>
+        ) : extractionStatus === "Completed" && typeof onPressAnalyze === "function" ? (
+          <Pressable
+            onPress={() => onPressAnalyze(assignment)}
+            className="flex-1 h-[42px] bg-[#16203D] border border-[#293B6B] rounded-xl flex-row items-center justify-center mr-2 active:opacity-85"
+            accessibilityRole="button"
+            accessibilityLabel={`Analyze writing for ${assignment.title}`}
+          >
+            <Ionicons
+              name="sparkles-outline"
+              size={14}
+              color="#38BDF8"
+              style={{ marginRight: 6 }}
+            />
+            <Text className="text-[12.5px] font-bold text-white">
+              {analysisStatus === "Failed" ? "Retry Analysis" : "Analyze Writing"}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        <Pressable
+          onPress={() => onPressDetails && onPressDetails(assignment)}
+          className={`${
+            canShowAction ? "px-4" : "flex-1"
+          } h-[42px] bg-[#080B14] border border-[#1A2138] rounded-xl flex-row items-center justify-center active:opacity-80`}
+          accessibilityRole="button"
+          accessibilityLabel={`View details for ${assignment.title}`}
+        >
+          <Text className="text-[12.5px] font-bold text-white mr-1.5">
+            {canShowAction ? "Details" : "View Details"}
+          </Text>
+          <Ionicons name="arrow-forward" size={13} color="#FFFFFF" />
+        </Pressable>
+      </View>
     </View>
   );
 }

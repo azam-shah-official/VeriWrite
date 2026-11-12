@@ -55,13 +55,16 @@ const getExtractionDetails = (status, wordCount) => {
   };
 };
 
-const getAnalysisDetails = (status) => {
+const getAnalysisDetails = (status, analysisResult) => {
   if (status === "Completed") {
+    const signal = analysisResult?.signalLevel
+      ? ` (${analysisResult.signalLevel})`
+      : "";
     return {
       label: "Completed",
       dotColor: "#10B981",
       textColorClass: "text-[#10B981]",
-      explanation: "AI writing analysis completed.",
+      explanation: `AI writing analysis completed${signal}. Evidence report ready.`,
     };
   }
   if (status === "Failed") {
@@ -84,7 +87,7 @@ const getAnalysisDetails = (status) => {
     label: "Pending",
     dotColor: "#F59E0B",
     textColorClass: "text-[#F59E0B]",
-    explanation: "AI analysis has not started yet.",
+    explanation: "Queued for AI writing analysis.",
   };
 };
 
@@ -117,6 +120,8 @@ export default function AssignmentDetailModal({
   visible,
   assignment,
   onClose,
+  onAnalyze,
+  onViewReport,
 }) {
   if (!assignment) {
     return null;
@@ -126,7 +131,10 @@ export default function AssignmentDetailModal({
     assignment.extractionStatus,
     assignment.wordCount
   );
-  const analysisDetails = getAnalysisDetails(assignment.analysisStatus);
+  const analysisDetails = getAnalysisDetails(
+    assignment.analysisStatus,
+    assignment.analysisResult
+  );
   const reviewDetails = getReviewDetails(assignment.reviewStatus);
 
   const displayFileName =
@@ -378,6 +386,51 @@ export default function AssignmentDetailModal({
               </Text>
             </View>
           </ScrollView>
+
+          {/* Action Button: View Report or Analyze Writing */}
+          {assignment.analysisStatus === "Completed" && typeof onViewReport === "function" ? (
+            <Pressable
+              onPress={() => {
+                onClose();
+                onViewReport(assignment);
+              }}
+              className="w-full h-[44px] bg-[#16203D] border border-[#293B6B] rounded-xl flex-row items-center justify-center mb-2.5 active:opacity-85"
+              accessibilityRole="button"
+              accessibilityLabel="View full analysis report"
+            >
+              <Ionicons
+                name="analytics-outline"
+                size={16}
+                color="#38BDF8"
+                style={{ marginRight: 6 }}
+              />
+              <Text className="text-[13.5px] font-bold text-white">
+                View Full Analysis Report
+              </Text>
+            </Pressable>
+          ) : assignment.extractionStatus === "Completed" && typeof onAnalyze === "function" ? (
+            <Pressable
+              onPress={() => {
+                onClose();
+                onAnalyze(assignment);
+              }}
+              className="w-full h-[44px] bg-[#16203D] border border-[#293B6B] rounded-xl flex-row items-center justify-center mb-2.5 active:opacity-85"
+              accessibilityRole="button"
+              accessibilityLabel="Analyze writing now"
+            >
+              <Ionicons
+                name="sparkles-outline"
+                size={16}
+                color="#38BDF8"
+                style={{ marginRight: 6 }}
+              />
+              <Text className="text-[13.5px] font-bold text-white">
+                {assignment.analysisStatus === "Failed"
+                  ? "Retry Writing Analysis"
+                  : "Analyze Writing Now"}
+              </Text>
+            </Pressable>
+          ) : null}
 
           {/* Close Button */}
           <Pressable

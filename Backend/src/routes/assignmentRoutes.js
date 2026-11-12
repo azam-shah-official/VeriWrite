@@ -4,6 +4,7 @@ import { uploadSingleAssignmentFile } from "../middleware/uploadMiddleware.js";
 import {
   uploadAssignment,
   getMyAssignments,
+  analyzeAssignment,
 } from "../controllers/assignmentController.js";
 
 const router = express.Router();
@@ -18,6 +19,14 @@ router.post(
   authorizeRoles("STUDENT"),
   uploadSingleAssignmentFile,
   uploadAssignment
+);
+
+// POST /api/assignments/:id/analyze - Authenticated STUDENT only
+router.post(
+  "/:id/analyze",
+  protect,
+  authorizeRoles("STUDENT"),
+  analyzeAssignment
 );
 
 export default router;

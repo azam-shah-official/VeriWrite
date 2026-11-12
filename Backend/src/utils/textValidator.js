@@ -242,3 +242,204 @@ export function assertValidText(rawOrNormalizedText, options = {}) {
   }
   return result;
 }
+
+export class EvidenceValidationError extends Error {
+  constructor(message, code = "INVALID_EVIDENCE") {
+    super(message);
+    this.name = "EvidenceValidationError";
+    this.code = code;
+  }
+}
+
+/**
+ * Validates analysis evidence character offsets and snippet matching against
+ * the assignment's original extractedText.
+ *
+ * Indexing & Offset Policy:
+ * - Offsets use the 0-indexed, end-exclusive convention: extractedText.slice(charStart, charEnd).
+ * - charStart must be an integer >= 0.
+ * - charEnd must be an integer > charStart (end-exclusive boundary).
+ * - charEnd must not exceed extractedText.length.
+ * - If both charStart and charEnd are null/undefined, the evidence is treated as
+ *   unanchored document-level evidence (allowed by schema policy for holistic indicators).
+ * - If either charStart or charEnd is provided, BOTH must be valid integers.
+ *
+ * Normalization & Snippet Matching Policy:
+ * 1. Exact string match: extractedText.slice(charStart, charEnd) === snippet
+ * 2. Fallback normalization: normalizeExtractedText(slice) === normalizeExtractedText(snippet)
+ *    (resolves minor whitespace or CRLF line ending differences without silent offset mutation).
+ * If neither matches, validation fails and the evidence is rejected.
+ *
+ * @param {object} evidence - Evidence item containing snippet, charStart, charEnd.
+ * @param {string} extractedText - Original extracted text from the assignment.
+ * @returns {{ isValid: boolean, error: string | null, errorCode: string | null }} Validation result.
+ */
+export function validateEvidenceOffsets(evidence, extractedText) {
+  if (!evidence || typeof evidence !== "object") {
+    return {
+      isValid: false,
+      error: "Evidence item must be an object.",
+      errorCode: "INVALID_EVIDENCE_OBJECT",
+    };
+  }
+
+  if (typeof extractedText !== "string") {
+    return {
+      isValid: false,
+      error: "Original extractedText must be a string for offset verification.",
+      errorCode: "MISSING_EXTRACTED_TEXT",
+    };
+  }
+
+  const { charStart, charEnd, snippet } = evidence;
+
+  // Schema policy for unanchored/document-level evidence:
+  // When both charStart and charEnd are null or undefined
+  const hasStart = charStart !== null && charStart !== undefined;
+  const hasEnd = charEnd !== null && charEnd !== undefined;
+
+  if (!hasStart && !hasEnd) {
+    if (typeof snippet !== "string" || snippet.trim().length === 0) {
+      return {
+        isValid: false,
+        error: "Evidence snippet must be a non-empty string.",
+        errorCode: "INVALID_SNIPPET",
+      };
+    }
+    return { isValid: true, error: null, errorCode: null };
+  }
+
+  // If one offset is provided, both must be provided
+  if (!hasStart || !hasEnd) {
+    return {
+      isValid: false,
+      error:
+        "Both charStart and charEnd must be provided together when specifying character offsets.",
+      errorCode: "INCOMPLETE_OFFSETS",
+    };
+  }
+
+  // Both offsets must be valid integers
+  if (!Number.isInteger(charStart)) {
+    return {
+      isValid: false,
+      error: `charStart must be a valid integer, received: ${charStart}.`,
+      errorCode: "INVALID_CHAR_START",
+    };
+  }
+
+  if (!Number.isInteger(charEnd)) {
+    return {
+      isValid: false,
+      error: `charEnd must be a valid integer, received: ${charEnd}.`,
+      errorCode: "INVALID_CHAR_END",
+    };
+  }
+
+  // charStart must be non-negative
+  if (charStart < 0) {
+    return {
+      isValid: false,
+      error: `charStart must be non-negative (>= 0), received: ${charStart}.`,
+      errorCode: "NEGATIVE_CHAR_START",
+    };
+  }
+
+  // charEnd must be strictly greater than charStart (end-exclusive slice)
+  if (charEnd <= charStart) {
+    return {
+      isValid: false,
+      error: `charEnd (${charEnd}) must be strictly greater than charStart (${charStart}) under end-exclusive slicing.`,
+      errorCode: "INVALID_OFFSET_RANGE",
+    };
+  }
+
+  // charEnd must not exceed extractedText length
+  if (charEnd > extractedText.length) {
+    return {
+      isValid: false,
+      error: `charEnd (${charEnd}) exceeds extractedText length (${extractedText.length}).`,
+      errorCode: "OFFSET_OUT_OF_BOUNDS",
+    };
+  }
+
+  if (typeof snippet !== "string" || snippet.trim().length === 0) {
+    return {
+      isValid: false,
+      error: "Evidence snippet must be a non-empty string.",
+      errorCode: "INVALID_SNIPPET",
+    };
+  }
+
+  // Sliced text comparison using end-exclusive range: extractedText.slice(charStart, charEnd)
+  const slicedText = extractedText.slice(charStart, charEnd);
+
+  const isExactMatch = slicedText === snippet;
+  const isNormalizedMatch =
+    !isExactMatch &&
+    normalizeExtractedText(slicedText) === normalizeExtractedText(snippet);
+
+  if (!isExactMatch && !isNormalizedMatch) {
+    return {
+      isValid: false,
+      error: `Evidence snippet does not match extractedText at slice [${charStart}, ${charEnd}).`,
+      errorCode: "SNIPPET_MISMATCH",
+    };
+  }
+
+  return { isValid: true, error: null, errorCode: null };
+}
+
+/**
+ * Asserts that evidence offsets are valid against extractedText, throwing EvidenceValidationError on failure.
+ *
+ * @param {object} evidence - Evidence item.
+ * @param {string} extractedText - Original extracted text.
+ * @returns {object} Validation result.
+ */
+export function assertValidEvidenceOffsets(evidence, extractedText) {
+  const result = validateEvidenceOffsets(evidence, extractedText);
+  if (!result.isValid) {
+    throw new EvidenceValidationError(result.error, result.errorCode);
+  }
+  return result;
+}
+
+/**
+ * Validates all indicators and evidence items in an analysisResult against the assignment's extractedText.
+ *
+ * @param {object} analysisResult - Analysis result subdocument.
+ * @param {string} extractedText - Original extracted text.
+ * @returns {{ isValid: boolean, error: string | null, errorCode: string | null }} Validation result.
+ */
+export function validateAnalysisResultEvidence(analysisResult, extractedText) {
+  if (!analysisResult || typeof analysisResult !== "object") {
+    return { isValid: true, error: null, errorCode: null };
+  }
+
+  if (!Array.isArray(analysisResult.indicators)) {
+    return { isValid: true, error: null, errorCode: null };
+  }
+
+  for (let indIdx = 0; indIdx < analysisResult.indicators.length; indIdx++) {
+    const indicator = analysisResult.indicators[indIdx];
+    if (Array.isArray(indicator?.evidence)) {
+      for (let evIdx = 0; evIdx < indicator.evidence.length; evIdx++) {
+        const ev = indicator.evidence[evIdx];
+        const res = validateEvidenceOffsets(ev, extractedText);
+        if (!res.isValid) {
+          return {
+            isValid: false,
+            indicatorIndex: indIdx,
+            evidenceIndex: evIdx,
+            indicatorCode: indicator.code,
+            error: `Indicator [${indicator.code}] evidence #${evIdx}: ${res.error}`,
+            errorCode: res.errorCode,
+          };
+        }
+      }
+    }
+  }
+
+  return { isValid: true, error: null, errorCode: null };
+}
