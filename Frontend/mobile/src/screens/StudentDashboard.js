@@ -93,6 +93,26 @@ export default function StudentDashboard({ user, onLogout }) {
     [assignments]
   );
 
+  const verifiedCount = useMemo(
+    () =>
+      assignments.filter(
+        (item) =>
+          item.analysisStatus === "Completed" &&
+          item.reviewStatus === "Completed"
+      ).length,
+    [assignments]
+  );
+
+  const inQueueCount = useMemo(
+    () =>
+      assignments.filter(
+        (item) =>
+          item.analysisStatus !== "Completed" ||
+          item.reviewStatus !== "Completed"
+      ).length,
+    [assignments]
+  );
+
   // Filtered assignments for the Papers tab (maps backend analysisStatus & reviewStatus)
   const filteredPapers = useMemo(() => {
     if (paperFilter === PAPER_FILTERS.RECENT) {
@@ -520,11 +540,11 @@ export default function StudentDashboard({ user, onLogout }) {
           },
           {
             key: PAPER_FILTERS.COMPLETED,
-            label: "Verified",
+            label: `Verified (${verifiedCount})`,
           },
           {
             key: PAPER_FILTERS.PENDING,
-            label: "In Queue / Review",
+            label: `In Queue / Review (${inQueueCount})`,
           },
         ].map((filterItem) => {
           const isSelected = paperFilter === filterItem.key;

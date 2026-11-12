@@ -1,5 +1,6 @@
 import Assignment from "../models/Assignment.js";
 import { safeDeleteUploadedFile } from "../middleware/uploadMiddleware.js";
+import { extractTextFromFile } from "../utils/textExtractor.js";
 
 const MAX_TITLE_LENGTH = 150;
 const MAX_COURSE_LENGTH = 100;
@@ -42,6 +43,13 @@ const serializeAssignment = (doc) => {
     fileExtension: doc.fileExtension,
     fileCategory: doc.fileCategory,
     fileSize: doc.fileSize,
+    extractionStatus: doc.extractionStatus || "Pending",
+    wordCount: doc.wordCount || 0,
+    characterCount: doc.characterCount || 0,
+    characterCountWithoutSpaces: doc.characterCountWithoutSpaces || 0,
+    paragraphCount: doc.paragraphCount || 0,
+    lineCount: doc.lineCount || 0,
+    readingTimeMinutes: doc.readingTimeMinutes || 0,
     analysisStatus: doc.analysisStatus || "Pending",
     reviewStatus: doc.reviewStatus || "Pending",
     summaryNote:
@@ -150,7 +158,56 @@ export const uploadAssignment = async (req, res) => {
       fileCategory,
     } = req.verifiedUpload;
 
-    // 4. Persist assignment metadata in MongoDB Atlas (always using verified req.user.id)
+    // 4. Perform text extraction and validation for supported document types
+    let extractedText = "";
+    let extractionStatus = "Pending";
+    let extractionErrorCode = null;
+    let extractionStats = {
+      wordCount: 0,
+      characterCount: 0,
+      characterCountWithoutSpaces: 0,
+      paragraphCount: 0,
+      lineCount: 0,
+      readingTimeMinutes: 0,
+    };
+
+    if (fileCategory === "IMAGE") {
+      extractionStatus = "NotSupported";
+      extractedText = "";
+      extractionErrorCode = null;
+    } else if (["PDF", "DOCX", "TXT"].includes(fileCategory)) {
+      try {
+        const extraction = await extractTextFromFile(internalFilePath, {
+          fileCategory,
+          enforceStorageDir: true,
+        });
+        extractedText = extraction.normalizedText || "";
+        extractionStatus = "Completed";
+        extractionStats = {
+          wordCount: extraction.stats?.wordCount || 0,
+          characterCount: extraction.stats?.characterCount || 0,
+          characterCountWithoutSpaces:
+            extraction.stats?.characterCountWithoutSpaces || 0,
+          paragraphCount: extraction.stats?.paragraphCount || 0,
+          lineCount: extraction.stats?.lineCount || 0,
+          readingTimeMinutes: extraction.stats?.readingTimeMinutes || 0,
+        };
+      } catch (extractErr) {
+        // Extraction failed (e.g. empty, corrupt, encrypted, scanned/image-only PDF).
+        // Preserve physical file for review; do not delete the file.
+        extractionStatus = "Failed";
+        extractionErrorCode =
+          typeof extractErr?.code === "string"
+            ? extractErr.code
+            : "EXTRACTION_FAILED";
+        extractedText = "";
+      }
+    } else {
+      extractionStatus = "NotSupported";
+      extractedText = "";
+    }
+
+    // 5. Persist assignment metadata in MongoDB Atlas (always using verified req.user.id)
     const createdAssignment = await Assignment.create({
       student: req.user.id,
       title: trimmedTitle,
@@ -163,13 +220,22 @@ export const uploadAssignment = async (req, res) => {
       fileExtension,
       fileCategory,
       fileSize,
+      extractedText,
+      extractionStatus,
+      extractionErrorCode,
+      wordCount: extractionStats.wordCount,
+      characterCount: extractionStats.characterCount,
+      characterCountWithoutSpaces: extractionStats.characterCountWithoutSpaces,
+      paragraphCount: extractionStats.paragraphCount,
+      lineCount: extractionStats.lineCount,
+      readingTimeMinutes: extractionStats.readingTimeMinutes,
       analysisStatus: "Pending",
       reviewStatus: "Pending",
     });
 
     const safeAssignment = serializeAssignment(createdAssignment);
 
-    // 5. Return HTTP 201 with MongoDB assignment ID & createdAt while preserving top-level fields
+    // 6. Return HTTP 201 with MongoDB assignment ID & createdAt while preserving top-level fields
     return res.status(201).json({
       success: true,
       message: "Assignment file uploaded and saved successfully.",
@@ -189,6 +255,11 @@ export const uploadAssignment = async (req, res) => {
       fileExtension: safeAssignment.fileExtension,
       fileSize: safeAssignment.fileSize,
       fileCategory: safeAssignment.fileCategory,
+      extractionStatus: safeAssignment.extractionStatus,
+      wordCount: safeAssignment.wordCount,
+      characterCount: safeAssignment.characterCount,
+      paragraphCount: safeAssignment.paragraphCount,
+      readingTimeMinutes: safeAssignment.readingTimeMinutes,
       title: safeAssignment.title,
       course: safeAssignment.course,
       notes: safeAssignment.notes,

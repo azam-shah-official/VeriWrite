@@ -66,6 +66,60 @@ const assignmentSchema = new mongoose.Schema(
       required: [true, "File size is required"],
       min: [1, "File size must be greater than 0"],
     },
+    extractedText: {
+      type: String,
+      default: "",
+      select: false,
+    },
+    extractionStatus: {
+      type: String,
+      enum: {
+        values: [
+          "Pending",
+          "Processing",
+          "Completed",
+          "Failed",
+          "NotSupported",
+        ],
+        message:
+          "Extraction status must be one of Pending, Processing, Completed, Failed, or NotSupported",
+      },
+      default: "Pending",
+    },
+    extractionErrorCode: {
+      type: String,
+      default: null,
+    },
+    wordCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    characterCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    characterCountWithoutSpaces: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    paragraphCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    lineCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    readingTimeMinutes: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     analysisStatus: {
       type: String,
       enum: {
@@ -95,6 +149,7 @@ const assignmentSchema = new mongoose.Schema(
     toJSON: {
       transform(_doc, ret) {
         delete ret.storagePath;
+        delete ret.extractedText;
         delete ret.__v;
         return ret;
       },
@@ -102,6 +157,7 @@ const assignmentSchema = new mongoose.Schema(
     toObject: {
       transform(_doc, ret) {
         delete ret.storagePath;
+        delete ret.extractedText;
         delete ret.__v;
         return ret;
       },

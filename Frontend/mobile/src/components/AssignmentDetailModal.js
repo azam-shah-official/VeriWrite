@@ -10,6 +10,109 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { formatFileSizeMB } from "../utils/fileValidation";
 
+const getExtractionDetails = (status, wordCount) => {
+  if (status === "Completed") {
+    const wordCountStr =
+      typeof wordCount === "number" && wordCount > 0
+        ? ` (${wordCount.toLocaleString()} words)`
+        : "";
+    return {
+      label: "Completed",
+      dotColor: "#10B981",
+      textColorClass: "text-[#10B981]",
+      explanation: `Text extracted successfully${wordCountStr}.`,
+    };
+  }
+  if (status === "Failed") {
+    return {
+      label: "Failed",
+      dotColor: "#EF4444",
+      textColorClass: "text-[#F87171]",
+      explanation: "Text extraction could not be completed.",
+    };
+  }
+  if (status === "NotSupported") {
+    return {
+      label: "Not Supported",
+      dotColor: "#94A3B8",
+      textColorClass: "text-[#94A3B8]",
+      explanation: "This file type is not supported for text extraction.",
+    };
+  }
+  if (status === "Processing") {
+    return {
+      label: "Processing",
+      dotColor: "#F59E0B",
+      textColorClass: "text-[#F59E0B]",
+      explanation: "Document text extraction in progress...",
+    };
+  }
+  return {
+    label: "Pending",
+    dotColor: "#F59E0B",
+    textColorClass: "text-[#F59E0B]",
+    explanation: "Queued for document text extraction.",
+  };
+};
+
+const getAnalysisDetails = (status) => {
+  if (status === "Completed") {
+    return {
+      label: "Completed",
+      dotColor: "#10B981",
+      textColorClass: "text-[#10B981]",
+      explanation: "AI writing analysis completed.",
+    };
+  }
+  if (status === "Failed") {
+    return {
+      label: "Failed",
+      dotColor: "#EF4444",
+      textColorClass: "text-[#F87171]",
+      explanation: "AI writing analysis could not be completed.",
+    };
+  }
+  if (status === "Processing") {
+    return {
+      label: "Processing",
+      dotColor: "#F59E0B",
+      textColorClass: "text-[#F59E0B]",
+      explanation: "AI writing analysis in progress...",
+    };
+  }
+  return {
+    label: "Pending",
+    dotColor: "#F59E0B",
+    textColorClass: "text-[#F59E0B]",
+    explanation: "AI analysis has not started yet.",
+  };
+};
+
+const getReviewDetails = (status) => {
+  if (status === "Completed") {
+    return {
+      label: "Completed",
+      dotColor: "#10B981",
+      textColorClass: "text-[#10B981]",
+      explanation: "Instructor review is complete.",
+    };
+  }
+  if (status === "Needs Human Review") {
+    return {
+      label: "Needs Review",
+      dotColor: "#F59E0B",
+      textColorClass: "text-[#F59E0B]",
+      explanation: "Queued for instructor contextual review.",
+    };
+  }
+  return {
+    label: "Pending",
+    dotColor: "#F59E0B",
+    textColorClass: "text-[#F59E0B]",
+    explanation: "Teacher has not reviewed the assignment yet.",
+  };
+};
+
 export default function AssignmentDetailModal({
   visible,
   assignment,
@@ -19,9 +122,12 @@ export default function AssignmentDetailModal({
     return null;
   }
 
-  const isAnalysisCompleted = assignment.analysisStatus === "Completed";
-  const isAnalysisFailed = assignment.analysisStatus === "Failed";
-  const isReviewCompleted = assignment.reviewStatus === "Completed";
+  const extractionDetails = getExtractionDetails(
+    assignment.extractionStatus,
+    assignment.wordCount
+  );
+  const analysisDetails = getAnalysisDetails(assignment.analysisStatus);
+  const reviewDetails = getReviewDetails(assignment.reviewStatus);
 
   const displayFileName =
     assignment.originalFileName || assignment.fileName || "";
@@ -72,56 +178,95 @@ export default function AssignmentDetailModal({
               {assignment.course || "Academic Submission"}
             </Text>
 
-            {/* Status Grid */}
-            <View className="bg-[#0B0E1B] border border-[#1A2138] rounded-2xl p-3.5 mb-4 flex-row">
-              <View className="flex-1 pr-2">
-                <Text className="text-[10.5px] text-[#64748B] uppercase tracking-[0.8px] mb-1">
-                  Analysis Status
-                </Text>
-                <View className="flex-row items-center">
-                  <View
-                    style={{
-                      backgroundColor: isAnalysisCompleted
-                        ? "#10B981"
-                        : isAnalysisFailed
-                          ? "#EF4444"
-                          : "#F59E0B",
-                    }}
-                    className="w-2 h-2 rounded-full mr-1.5"
-                  />
-                  <Text
-                    className={`text-[13px] font-bold ${
-                      isAnalysisCompleted
-                        ? "text-[#10B981]"
-                        : isAnalysisFailed
-                          ? "text-[#F87171]"
-                          : "text-[#F59E0B]"
-                    }`}
-                  >
-                    {assignment.analysisStatus || "Pending"}
+            {/* 4-Stage Status Pipeline */}
+            <View className="bg-[#0B0E1B] border border-[#1A2138] rounded-2xl p-4 mb-4">
+              <Text className="text-[11px] font-bold tracking-[0.8px] text-[#94A3B8] uppercase mb-3">
+                Submission Pipeline Status
+              </Text>
+
+              {/* 1. Submission Status */}
+              <View className="flex-row items-start mb-3">
+                <View className="w-2 h-2 rounded-full bg-[#10B981] mt-1.5 mr-2.5" />
+                <View className="flex-1">
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-[12.5px] font-semibold text-white">
+                      Submission Status
+                    </Text>
+                    <Text className="text-[11px] font-bold text-[#10B981]">
+                      Submitted
+                    </Text>
+                  </View>
+                  <Text className="text-[11.5px] text-[#8E96B0] mt-0.5">
+                    Assignment uploaded successfully.
                   </Text>
                 </View>
               </View>
 
-              <View className="flex-1 pl-2 border-l border-[#1A2138]">
-                <Text className="text-[10.5px] text-[#64748B] uppercase tracking-[0.8px] mb-1">
-                  Review Status
-                </Text>
-                <View className="flex-row items-center">
-                  <View
-                    style={{
-                      backgroundColor: isReviewCompleted
-                        ? "#10B981"
-                        : "#F59E0B",
-                    }}
-                    className="w-2 h-2 rounded-full mr-1.5"
-                  />
-                  <Text
-                    className={`text-[13px] font-bold ${
-                      isReviewCompleted ? "text-[#10B981]" : "text-[#F59E0B]"
-                    }`}
-                  >
-                    {assignment.reviewStatus || "Pending"}
+              {/* 2. Text Extraction Status */}
+              <View className="flex-row items-start mb-3 pt-2.5 border-t border-[#161C30]">
+                <View
+                  style={{ backgroundColor: extractionDetails.dotColor }}
+                  className="w-2 h-2 rounded-full mt-1.5 mr-2.5"
+                />
+                <View className="flex-1">
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-[12.5px] font-semibold text-white">
+                      Text Extraction
+                    </Text>
+                    <Text
+                      className={`text-[11px] font-bold ${extractionDetails.textColorClass}`}
+                    >
+                      {extractionDetails.label}
+                    </Text>
+                  </View>
+                  <Text className="text-[11.5px] text-[#8E96B0] mt-0.5">
+                    {extractionDetails.explanation}
+                  </Text>
+                </View>
+              </View>
+
+              {/* 3. AI Writing Analysis */}
+              <View className="flex-row items-start mb-3 pt-2.5 border-t border-[#161C30]">
+                <View
+                  style={{ backgroundColor: analysisDetails.dotColor }}
+                  className="w-2 h-2 rounded-full mt-1.5 mr-2.5"
+                />
+                <View className="flex-1">
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-[12.5px] font-semibold text-white">
+                      Analysis Status
+                    </Text>
+                    <Text
+                      className={`text-[11px] font-bold ${analysisDetails.textColorClass}`}
+                    >
+                      {analysisDetails.label}
+                    </Text>
+                  </View>
+                  <Text className="text-[11.5px] text-[#8E96B0] mt-0.5">
+                    {analysisDetails.explanation}
+                  </Text>
+                </View>
+              </View>
+
+              {/* 4. Faculty Review */}
+              <View className="flex-row items-start pt-2.5 border-t border-[#161C30]">
+                <View
+                  style={{ backgroundColor: reviewDetails.dotColor }}
+                  className="w-2 h-2 rounded-full mt-1.5 mr-2.5"
+                />
+                <View className="flex-1">
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-[12.5px] font-semibold text-white">
+                      Review Status
+                    </Text>
+                    <Text
+                      className={`text-[11px] font-bold ${reviewDetails.textColorClass}`}
+                    >
+                      {reviewDetails.label}
+                    </Text>
+                  </View>
+                  <Text className="text-[11.5px] text-[#8E96B0] mt-0.5">
+                    {reviewDetails.explanation}
                   </Text>
                 </View>
               </View>
@@ -172,6 +317,15 @@ export default function AssignmentDetailModal({
                     {assignment.fileExtension
                       ? ` (${assignment.fileExtension})`
                       : ""}
+                  </Text>
+                </View>
+              ) : null}
+
+              {typeof assignment.wordCount === "number" && assignment.wordCount > 0 ? (
+                <View className="flex-row justify-between py-1.5 border-b border-[#161C30]">
+                  <Text className="text-[12px] text-[#64748B]">Word Count</Text>
+                  <Text className="text-[12px] font-semibold text-[#E2E8F0]">
+                    {assignment.wordCount.toLocaleString()} words
                   </Text>
                 </View>
               ) : null}
