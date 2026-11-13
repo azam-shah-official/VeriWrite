@@ -481,7 +481,7 @@ export default function AnalyzingProgressModal({
                   style={{ marginRight: 4 }}
                 />
                 <Text className="text-[10.5px] text-[#64748B]">
-                  Corpus indexing check
+                  Similarity engine planned for future release
                 </Text>
               </View>
             </View>

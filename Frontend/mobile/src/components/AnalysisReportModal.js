@@ -114,6 +114,29 @@ export default function AnalysisReportModal({
     ? analysisResult.indicators
     : [];
 
+  const mattrValue =
+    typeof metrics.mattr === "number"
+      ? metrics.mattr
+      : typeof metrics.lexicalDiversity === "number"
+        ? metrics.lexicalDiversity
+        : null;
+
+  const cadenceCVValue =
+    typeof metrics.burstinessScore === "number"
+      ? metrics.burstinessScore
+      : typeof metrics.sentenceLengthVariation === "number"
+        ? metrics.sentenceLengthVariation
+        : null;
+
+  const transitionDensityValue =
+    typeof metrics.transitionDensityScore === "number"
+      ? metrics.transitionDensityScore
+      : typeof metrics.transitionDensity === "number"
+        ? (metrics.transitionDensity > 1
+            ? metrics.transitionDensity / 100
+            : metrics.transitionDensity)
+        : null;
+
   const fileName =
     assignment.originalFileName ||
     assignment.fileName ||
@@ -266,8 +289,8 @@ export default function AnalysisReportModal({
                 </View>
               </View>
               <Text className="text-[17px] font-extrabold text-white mb-0.5">
-                {typeof metrics.mattr === "number"
-                  ? `${(metrics.mattr * 100).toFixed(0)}%`
+                {typeof mattrValue === "number"
+                  ? `${(mattrValue * 100).toFixed(0)}%`
                   : "N/A"}
               </Text>
               <Text className="text-[10px] text-[#8E96B0]">
@@ -350,24 +373,28 @@ export default function AnalysisReportModal({
                 Array.isArray(indicator.evidence) && indicator.evidence.length > 0
                   ? indicator.evidence[0]
                   : null;
+              const indicatorKey =
+                indicator.code || indicator.indicatorCode || `idx-${idx}`;
+              const indicatorTitle =
+                indicator.label || indicator.name || "Stylometric Indicator";
 
               return (
                 <View
-                  key={`indicator-${indicator.indicatorCode}-${idx}`}
+                  key={`indicator-${indicatorKey}-${idx}`}
                   className="bg-[#101426] border border-[#202948] rounded-[20px] p-4 mb-3.5"
                 >
                   {/* Indicator Header */}
-                  <View className="flex-row items-center justify-between mb-2">
-                    <View className="flex-row items-center flex-1 mr-2">
+                  <View className="flex-row items-start justify-between mb-2">
+                    <View className="flex-row items-start flex-1 mr-2">
                       <View
-                        style={{ backgroundColor: sev.dotColor }}
+                        style={{ backgroundColor: sev.dotColor, marginTop: 5 }}
                         className="w-2 h-2 rounded-full mr-2"
                       />
                       <Text
-                        className="text-[13.5px] font-bold text-white flex-1"
-                        numberOfLines={1}
+                        className="text-[13.5px] font-bold text-white flex-1 mr-1"
+                        numberOfLines={2}
                       >
-                        {indicator.name}
+                        {indicatorTitle}
                       </Text>
                     </View>
                     <View
@@ -434,27 +461,26 @@ export default function AnalysisReportModal({
             <Text className="text-[16px] font-bold text-white">
               Similarity Results
             </Text>
-            <View className="bg-[#14231E] border border-[#194035] rounded-full px-2.5 py-0.5">
-              <Text className="text-[10px] font-bold text-[#34D399]">
-                0 Cross-Matches Found
+            <View className="bg-[#181E34] border border-[#263356] rounded-full px-2.5 py-0.5">
+              <Text className="text-[10px] font-bold text-[#94A3B8]">
+                Not Available Yet
               </Text>
             </View>
           </View>
           <View className="bg-[#101426] border border-[#202948] rounded-[20px] p-4 mb-5">
             <View className="flex-row items-start">
               <Ionicons
-                name="shield-outline"
+                name="information-circle-outline"
                 size={16}
-                color="#34D399"
+                color="#94A3B8"
                 style={{ marginTop: 1, marginRight: 8 }}
               />
               <View className="flex-1">
                 <Text className="text-[12.5px] font-bold text-white mb-1">
-                  Corpus Integrity Check
+                  Text Similarity Checking
                 </Text>
                 <Text className="text-[11.5px] text-[#8E96B0] leading-[17px]">
-                  Local archive comparison verified. No duplicate submission
-                  records or unauthorized direct matches detected.
+                  Cross-submission and repository similarity checking is planned for a future feature. This report currently reflects AI writing and stylometric analysis only.
                 </Text>
               </View>
             </View>
@@ -485,17 +511,20 @@ export default function AnalysisReportModal({
                         }
                         className="flex-row items-center justify-between"
                         accessibilityRole="button"
-                        accessibilityLabel={`Toggle inspection for ${ind.name}`}
+                        accessibilityLabel={`Toggle inspection for ${
+                          ind.label || ind.name || "flagged section"
+                        }`}
                       >
-                        <View className="flex-row items-center flex-1 mr-2">
-                          <View className="w-6 h-6 rounded-lg bg-[#141C34] border border-[#222E54] items-center justify-center mr-2.5">
+                        <View className="flex-row items-start flex-1 mr-2">
+                          <View className="w-6 h-6 rounded-lg bg-[#141C34] border border-[#222E54] items-center justify-center mr-2.5 mt-0.5">
                             <Ionicons name="search" size={12} color="#38BDF8" />
                           </View>
                           <Text
-                            className="text-[13px] font-bold text-white flex-1"
-                            numberOfLines={1}
+                            className="text-[13px] font-bold text-white flex-1 mr-2"
+                            numberOfLines={2}
                           >
-                            Flagged Section #{indIdx + 1}: {ind.name}
+                            Flagged Section #{indIdx + 1}:{" "}
+                            {ind.label || ind.name || "Stylometric Indicator"}
                           </Text>
                         </View>
                         <Ionicons
@@ -509,9 +538,11 @@ export default function AnalysisReportModal({
                         <View className="mt-3 pt-3 border-t border-[#182038]">
                           {/* Part A: Original Assignment Text */}
                           <Text className="text-[11px] font-bold tracking-[0.8px] text-[#38BDF8] uppercase mb-1.5">
-                            A. Original Assignment Text (Paragraph{" "}
-                            {ev.paragraphIndex + 1}, Sentence{" "}
-                            {ev.sentenceIndex + 1})
+                            A. Original Assignment Text (
+                            {typeof ev.sentenceIndex === "number"
+                              ? `Paragraph ${(typeof ev.paragraphIndex === "number" ? ev.paragraphIndex : 0) + 1}, Sentence ${ev.sentenceIndex + 1}`
+                              : "Document Overview"}
+                            )
                           </Text>
                           <View className="bg-[#080B14] border border-[#182038] rounded-xl p-3 mb-3">
                             <Text className="text-[12px] font-mono text-[#CBD5E1] leading-[18px]">
@@ -537,8 +568,8 @@ export default function AnalysisReportModal({
                                 Sentence Cadence (CV)
                               </Text>
                               <Text className="text-[11px] font-bold text-white">
-                                {typeof metrics.sentenceLengthVariation === "number"
-                                  ? metrics.sentenceLengthVariation.toFixed(3)
+                                {typeof cadenceCVValue === "number"
+                                  ? cadenceCVValue.toFixed(3)
                                   : "N/A"}
                               </Text>
                             </View>
@@ -547,8 +578,8 @@ export default function AnalysisReportModal({
                                 MATTR Lexical Index
                               </Text>
                               <Text className="text-[11px] font-bold text-white">
-                                {typeof metrics.mattr === "number"
-                                  ? metrics.mattr.toFixed(3)
+                                {typeof mattrValue === "number"
+                                  ? mattrValue.toFixed(3)
                                   : "N/A"}
                               </Text>
                             </View>
@@ -557,8 +588,8 @@ export default function AnalysisReportModal({
                                 Transition Density
                               </Text>
                               <Text className="text-[11px] font-bold text-white">
-                                {typeof metrics.transitionDensity === "number"
-                                  ? `${metrics.transitionDensity.toFixed(1)} / 100 words`
+                                {typeof transitionDensityValue === "number"
+                                  ? `${(transitionDensityValue * 100).toFixed(1)} / 100 words`
                                   : "N/A"}
                               </Text>
                             </View>
