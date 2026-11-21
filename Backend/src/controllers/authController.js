@@ -43,6 +43,13 @@ export const register = async (req, res) => {
     const trimmedInstitution =
       typeof institution === "string" ? institution.trim() : "";
 
+    if (trimmedInstitution.length > 200) {
+      return res.status(400).json({
+        success: false,
+        message: "Institution name cannot exceed 200 characters.",
+      });
+    }
+
     // 2. Validate email format
     if (!EMAIL_REGEX.test(normalizedEmail)) {
       return res.status(400).json({
@@ -299,6 +306,9 @@ export const forgotPassword = async (req, res) => {
 
     // Always return the same generic response when email is not registered
     if (!user) {
+      console.log(
+        `[AUTH_FORGOT_PW] Requested for non-registered email: ${normalizedEmail.slice(0, 3)}***@*** (returning generic success)`
+      );
       return res.status(200).json({
         success: true,
         message: GENERIC_FORGOT_PASSWORD_MESSAGE,
@@ -324,7 +334,15 @@ export const forgotPassword = async (req, res) => {
         name: user.name,
         resetToken: rawResetToken,
       });
+      console.log(
+        `[AUTH_FORGOT_PW] Reset email successfully dispatched via SMTP for: ${normalizedEmail.slice(0, 3)}***@***`
+      );
     } catch (emailError) {
+      console.error(
+        `[AUTH_FORGOT_PW_ERROR] Failed to dispatch reset email: ${emailError.message}`,
+        emailError.code ? `(code: ${emailError.code})` : ""
+      );
+
       // Roll back stored token if email delivery fails
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
@@ -528,6 +546,91 @@ export const getMe = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error while fetching user profile.",
+    });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+    }
+
+    const { institution, name } = req.body || {};
+    const updateFields = {};
+
+    if (institution !== undefined) {
+      if (typeof institution !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Institution must be a string.",
+        });
+      }
+      const trimmedInstitution = institution.trim();
+      if (trimmedInstitution.length > 200) {
+        return res.status(400).json({
+          success: false,
+          message: "Institution name cannot exceed 200 characters.",
+        });
+      }
+      updateFields.institution = trimmedInstitution;
+    }
+
+    if (name !== undefined) {
+      if (typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "Name cannot be empty.",
+        });
+      }
+      const trimmedName = name.trim();
+      if (trimmedName.length > 100) {
+        return res.status(400).json({
+          success: false,
+          message: "Name cannot exceed 100 characters.",
+        });
+      }
+      updateFields.name = trimmedName;
+    }
+
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid profile fields provided for update.",
+      });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { $set: updateFields },
+      { returnDocument: "after", runValidators: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User account not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully.",
+      user: {
+        id: updatedUser._id.toString(),
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        institution: updatedUser.institution || "",
+      },
+    });
+  } catch (_error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while updating user profile.",
     });
   }
 };

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   ScrollView,
   BackHandler,
@@ -17,7 +18,8 @@ import AnalyzingProgressModal from "../components/AnalyzingProgressModal";
 import AnalysisReportModal from "../components/AnalysisReportModal";
 import UploadAssignmentScreen from "./UploadAssignmentScreen";
 import { calculateAssignmentStats } from "../data/studentAssignmentsData";
-import { fetchMyAssignments } from "../utils/apiClient";
+import { fetchMyAssignments, updateCurrentUserProfile } from "../utils/apiClient";
+import { getStoredToken, saveAuthSession } from "../utils/authStorage";
 
 const TABS = {
   OVERVIEW: "OVERVIEW",
@@ -43,6 +45,68 @@ export default function StudentDashboard({ user, onLogout }) {
   const [isForceReanalysis, setIsForceReanalysis] = useState(false);
   const [reportAssignment, setReportAssignment] = useState(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // Authenticated user profile state & institution editing
+  const [currentUser, setCurrentUser] = useState(user);
+  const [isEditingInstitution, setIsEditingInstitution] = useState(false);
+  const [institutionInput, setInstitutionInput] = useState(user?.institution || "");
+  const [isSavingInstitution, setIsSavingInstitution] = useState(false);
+  const [institutionError, setInstitutionError] = useState("");
+  const [institutionSuccess, setInstitutionSuccess] = useState("");
+
+  useEffect(() => {
+    setCurrentUser(user);
+    setInstitutionInput(user?.institution || "");
+  }, [user]);
+
+  const handleSaveInstitution = async () => {
+    const trimmed = institutionInput.trim();
+    if (trimmed.length > 200) {
+      setInstitutionError("Institution cannot exceed 200 characters.");
+      return;
+    }
+
+    setIsSavingInstitution(true);
+    setInstitutionError("");
+    setInstitutionSuccess("");
+
+    try {
+      const response = await updateCurrentUserProfile(
+        { institution: trimmed },
+        {
+          onUnauthorized: () => {
+            if (onLogout) {
+              onLogout();
+            }
+          },
+        }
+      );
+
+      if (response.ok && response.data?.user) {
+        const updatedUser = response.data.user;
+        setCurrentUser(updatedUser);
+        try {
+          const token = await getStoredToken();
+          if (token) {
+            await saveAuthSession(token, updatedUser);
+          }
+        } catch (_storageErr) {
+          // non-blocking
+        }
+        setInstitutionSuccess("Institution updated successfully.");
+        setIsEditingInstitution(false);
+      } else {
+        setInstitutionError(
+          response.data?.message ||
+            "Failed to update institution. Please check your connection and try again."
+        );
+      }
+    } catch (_err) {
+      setInstitutionError("Unable to connect to server. Please try again.");
+    } finally {
+      setIsSavingInstitution(false);
+    }
+  };
 
   // Real assignments state fetched from GET /api/assignments/my
   const [assignments, setAssignments] = useState([]);
@@ -239,7 +303,7 @@ export default function StudentDashboard({ user, onLogout }) {
     }
   };
 
-  const studentName = user?.name?.trim() ? user.name.trim() : "Student";
+  const studentName = currentUser?.name?.trim() ? currentUser.name.trim() : "Student";
 
   const renderTopBar = () => (
     <View className="flex-row items-center justify-between px-5 pt-2 pb-3">
@@ -826,7 +890,7 @@ export default function StudentDashboard({ user, onLogout }) {
               {studentName}
             </Text>
             <Text className="text-[12.5px] text-[#94A3B8]">
-              {user?.email || "No email available"}
+              {currentUser?.email || "No email available"}
             </Text>
           </View>
         </View>
@@ -847,20 +911,105 @@ export default function StudentDashboard({ user, onLogout }) {
               ACADEMIC EMAIL
             </Text>
             <Text className="text-[13.5px] text-[#CBD5E1]">
-              {user?.email || "—"}
+              {currentUser?.email || "—"}
             </Text>
           </View>
 
-          {user?.institution ? (
-            <View className="mb-3.5">
-              <Text className="text-[10.5px] font-semibold tracking-[1px] text-[#64748B] uppercase mb-0.5">
+          {/* Institution Section with Edit Capability */}
+          <View className="mb-3.5">
+            <View className="flex-row items-center justify-between mb-1">
+              <Text className="text-[10.5px] font-semibold tracking-[1px] text-[#64748B] uppercase">
                 INSTITUTION
               </Text>
-              <Text className="text-[13.5px] text-[#CBD5E1]">
-                {user.institution}
-              </Text>
+              {!isEditingInstitution && (
+                <Pressable
+                  onPress={() => {
+                    setInstitutionInput(currentUser?.institution || "");
+                    setInstitutionError("");
+                    setInstitutionSuccess("");
+                    setIsEditingInstitution(true);
+                  }}
+                  hitSlop={8}
+                  className="flex-row items-center active:opacity-75"
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit Institution"
+                >
+                  <Ionicons
+                    name="pencil-outline"
+                    size={12}
+                    color="#38BDF8"
+                    style={{ marginRight: 3 }}
+                  />
+                  <Text className="text-[11px] font-bold text-[#38BDF8]">
+                    {currentUser?.institution ? "Edit" : "Set Institute"}
+                  </Text>
+                </Pressable>
+              )}
             </View>
-          ) : null}
+
+            {isEditingInstitution ? (
+              <View className="mt-1">
+                <TextInput
+                  value={institutionInput}
+                  onChangeText={(val) => {
+                    setInstitutionInput(val);
+                    if (institutionError) setInstitutionError("");
+                  }}
+                  placeholder="e.g. Stanford University"
+                  placeholderTextColor="#475569"
+                  maxLength={200}
+                  autoFocus={true}
+                  className="bg-[#080A14] border border-[#2B3558] rounded-xl px-3 py-2 text-[13.5px] text-white"
+                />
+                {institutionError ? (
+                  <Text className="text-[11px] text-[#F87171] mt-1 ml-0.5">
+                    {institutionError}
+                  </Text>
+                ) : null}
+                <View className="flex-row items-center gap-2 mt-2">
+                  <Pressable
+                    onPress={handleSaveInstitution}
+                    disabled={isSavingInstitution}
+                    className="flex-row items-center bg-[#1E294B] border border-[#38BDF8] rounded-lg px-3 py-1.5 active:opacity-80"
+                    accessibilityRole="button"
+                    accessibilityLabel="Save Institution"
+                  >
+                    {isSavingInstitution ? (
+                      <ActivityIndicator size="small" color="#38BDF8" />
+                    ) : (
+                      <Text className="text-[11.5px] font-bold text-white">
+                        Save
+                      </Text>
+                    )}
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setIsEditingInstitution(false);
+                      setInstitutionError("");
+                    }}
+                    disabled={isSavingInstitution}
+                    className="rounded-lg px-3 py-1.5 active:opacity-80"
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel"
+                  >
+                    <Text className="text-[11.5px] font-medium text-[#94A3B8]">
+                      Cancel
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <Text className="text-[13.5px] text-[#CBD5E1]">
+                {currentUser?.institution || "Not Set"}
+              </Text>
+            )}
+
+            {institutionSuccess ? (
+              <Text className="text-[11px] text-[#34D399] mt-1 ml-0.5">
+                {institutionSuccess}
+              </Text>
+            ) : null}
+          </View>
 
           <View>
             <Text className="text-[10.5px] font-semibold tracking-[1px] text-[#64748B] uppercase mb-0.5">
@@ -869,7 +1018,7 @@ export default function StudentDashboard({ user, onLogout }) {
             <View className="flex-row items-center mt-0.5">
               <View className="w-2 h-2 rounded-full bg-[#38BDF8] mr-2" />
               <Text className="text-[13.5px] font-bold text-[#38BDF8]">
-                {user?.role || "STUDENT"}
+                {currentUser?.role || "STUDENT"}
               </Text>
             </View>
           </View>

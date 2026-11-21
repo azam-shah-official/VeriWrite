@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Modal,
   View,
@@ -7,10 +7,13 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { formatFileSizeMB } from "../utils/fileValidation";
+import { fetchAssignmentEvidence } from "../utils/apiClient";
+import HighlightedEvidenceViewer from "./HighlightedEvidenceViewer";
 
 const formatDate = (dateString) => {
   if (!dateString) return "Recently";
@@ -96,13 +99,133 @@ const getSeverityTheme = (severity) => {
   }
 };
 
+const getStudentReviewStatusTheme = (status) => {
+  switch (status) {
+    case "Reviewed":
+    case "Completed":
+      return {
+        bg: "bg-[#09221C]",
+        border: "border-[#144837]",
+        text: "text-[#34D399]",
+        dotColor: "#10B981",
+        label: "Reviewed",
+        desc: "Faculty review completed.",
+      };
+    case "Needs Clarification":
+      return {
+        bg: "bg-[#291F0E]",
+        border: "border-[#4A381A]",
+        text: "text-[#FBBF24]",
+        dotColor: "#F59E0B",
+        label: "Needs Clarification",
+        desc: "Clarification requested by instructor.",
+      };
+    case "Further Review Required":
+      return {
+        bg: "bg-[#2B1417]",
+        border: "border-[#522229]",
+        text: "text-[#F87171]",
+        dotColor: "#EF4444",
+        label: "Further Review",
+        desc: "Escalated for departmental review.",
+      };
+    case "Under Review":
+      return {
+        bg: "bg-[#0F1E38]",
+        border: "border-[#1D3B6D]",
+        text: "text-[#38BDF8]",
+        dotColor: "#38BDF8",
+        label: "Under Review",
+        desc: "Instructor is actively evaluating findings.",
+      };
+    case "Pending Review":
+    case "Pending":
+    default:
+      return {
+        bg: "bg-[#141C2E]",
+        border: "border-[#212E4A]",
+        text: "text-[#94A3B8]",
+        dotColor: "#64748B",
+        label: status || "Pending Review",
+        desc: "Queued for faculty instructor evaluation.",
+      };
+  }
+};
+
 export default function AnalysisReportModal({
   visible,
   assignment,
   onClose,
   onReanalyze,
 }) {
+  const [activeTab, setActiveTab] = useState("summary"); // "summary" | "viewer"
   const [expandedEvidenceIndex, setExpandedEvidenceIndex] = useState(0);
+  const [evidenceData, setEvidenceData] = useState(null);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceError, setEvidenceError] = useState(null);
+  const [activeFindingId, setActiveFindingId] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState("ALL");
+
+  const loadEvidence = useCallback(async () => {
+    if (!assignment?.id || assignment.analysisStatus !== "Completed") {
+      return;
+    }
+    setEvidenceLoading(true);
+    setEvidenceError(null);
+    try {
+      const response = await fetchAssignmentEvidence(assignment.id);
+      if (response.ok && response.data?.success) {
+        setEvidenceData(response.data);
+      } else {
+        setEvidenceError(
+          response.data?.message || "Failed to load document evidence."
+        );
+      }
+    } catch (_err) {
+      setEvidenceError("Network error while connecting to evidence service.");
+    } finally {
+      setEvidenceLoading(false);
+    }
+  }, [assignment?.id, assignment?.analysisStatus]);
+
+  useEffect(() => {
+    if (!visible || !assignment?.id) {
+      setEvidenceData(null);
+      setEvidenceLoading(false);
+      setEvidenceError(null);
+      setActiveFindingId(null);
+      setSelectedCategory("ALL");
+      setActiveTab("summary");
+      return;
+    }
+
+    loadEvidence();
+  }, [visible, assignment?.id, loadEvidence]);
+
+  const teacherCommentsList = useMemo(() => {
+    if (
+      Array.isArray(evidenceData?.teacherComments) &&
+      evidenceData.teacherComments.length > 0
+    ) {
+      return evidenceData.teacherComments;
+    }
+    if (Array.isArray(assignment?.teacherComments)) {
+      return assignment.teacherComments;
+    }
+    return [];
+  }, [evidenceData, assignment]);
+
+  const findingReviewsMap = useMemo(() => {
+    const map = {};
+    const reviews =
+      evidenceData?.findingReviews || assignment?.findingReviews || [];
+    if (Array.isArray(reviews)) {
+      reviews.forEach((r) => {
+        if (r?.findingId) map[r.findingId] = r;
+      });
+    }
+    return map;
+  }, [evidenceData, assignment]);
 
   if (!visible || !assignment) {
     return null;
@@ -151,6 +274,19 @@ export default function AnalysisReportModal({
 
   const signalTheme = getSignalLevelTheme(analysisResult.signalLevel);
 
+  const effectiveReviewStatus =
+    evidenceData?.reviewStatus || assignment.reviewStatus || "Pending Review";
+  const effectiveLastReviewedAt =
+    evidenceData?.lastReviewedAt || assignment.lastReviewedAt || null;
+  const teacherReview =
+    evidenceData?.teacherReview || assignment.teacherReview || null;
+  const teacherFeedbackNotes =
+    teacherReview?.feedbackNotes ||
+    assignment.teacherReview?.feedbackNotes ||
+    "";
+
+  const studentStatusTheme = getStudentReviewStatusTheme(effectiveReviewStatus);
+
   // Indicator counts by severity
   const highCount = indicators.filter((i) => i.severity === "High").length;
   const mediumCount = indicators.filter((i) => i.severity === "Medium").length;
@@ -173,6 +309,171 @@ export default function AnalysisReportModal({
       ]
     );
   };
+
+  const renderModalHeader = () => (
+    <View className="mb-2">
+      {/* Subheader & Back Button */}
+      <View className="flex-row items-center justify-between mb-2">
+        <Pressable
+          onPress={onClose}
+          hitSlop={10}
+          className="w-8 h-8 rounded-xl bg-[#14192C] border border-[#222943] items-center justify-center active:opacity-80"
+          accessibilityRole="button"
+          accessibilityLabel="Back to dashboard"
+        >
+          <Ionicons name="arrow-back" size={16} color="#94A3B8" />
+        </Pressable>
+
+        <View className="flex-row items-center">
+          <View className="bg-[#0C1226] border border-[#19244D] rounded-full px-3 py-1 mr-2">
+            <Text className="text-[10px] font-bold tracking-[1.5px] text-[#38BDF8] uppercase">
+              • ANALYZE • VERIFY • TRUST
+            </Text>
+          </View>
+          <Text className="text-[11px] font-bold tracking-[0.5px] text-[#64748B]">
+            # VR-{idShort}
+          </Text>
+        </View>
+      </View>
+
+      {/* Title & Metadata */}
+      <Text className="text-[22px] font-bold text-white mb-1">
+        Analysis Report
+      </Text>
+      <View className="flex-row items-center mb-1">
+        <Ionicons
+          name="document-text"
+          size={14}
+          color="#38BDF8"
+          style={{ marginRight: 6 }}
+        />
+        <Text
+          className="text-[13px] font-semibold text-[#CBD5E1] flex-1"
+          numberOfLines={1}
+        >
+          {fileName}
+        </Text>
+      </View>
+      <Text className="text-[11.5px] text-[#8E96B0] mb-4">
+        {fileSizeStr} • Analyzed {analyzedDateStr}
+      </Text>
+
+      {/* View Mode Switcher Tabs */}
+      <View className="flex-row bg-[#101426] border border-[#202948] rounded-xl p-1 mb-2">
+        <Pressable
+          onPress={() => setActiveTab("summary")}
+          className={`flex-1 flex-row items-center justify-center py-2.5 rounded-lg ${
+            activeTab === "summary"
+              ? "bg-[#1E2746] border border-[#3B4870]"
+              : "opacity-80"
+          }`}
+          accessibilityRole="button"
+          accessibilityLabel="Findings Summary View"
+        >
+          <Ionicons
+            name="bar-chart-outline"
+            size={14}
+            color={activeTab === "summary" ? "#38BDF8" : "#94A3B8"}
+            style={{ marginRight: 6 }}
+          />
+          <Text
+            className={`text-[12px] font-bold ${
+              activeTab === "summary" ? "text-white" : "text-[#94A3B8]"
+            }`}
+          >
+            Findings Summary
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => setActiveTab("viewer")}
+          className={`flex-1 flex-row items-center justify-center py-2.5 rounded-lg ${
+            activeTab === "viewer"
+              ? "bg-[#1E2746] border border-[#3B4870]"
+              : "opacity-80"
+          }`}
+          accessibilityRole="button"
+          accessibilityLabel="Interactive Document Viewer"
+        >
+          <Ionicons
+            name="document-text-outline"
+            size={14}
+            color={activeTab === "viewer" ? "#38BDF8" : "#94A3B8"}
+            style={{ marginRight: 6 }}
+          />
+          <Text
+            className={`text-[12px] font-bold ${
+              activeTab === "viewer" ? "text-white" : "text-[#94A3B8]"
+            }`}
+          >
+            Document Viewer
+          </Text>
+          {evidenceData?.evidenceMap?.anchoredFindings ? (
+            <View className="bg-[#0C243B] border border-[#194D7C] rounded-full px-1.5 py-0.2 ml-1.5">
+              <Text className="text-[9px] font-bold text-[#38BDF8]">
+                {evidenceData.evidenceMap.anchoredFindings}
+              </Text>
+            </View>
+          ) : null}
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  const renderActionButtons = () => (
+    <View className="mt-4 mb-8">
+      {/* Action Buttons */}
+      <Pressable
+        onPress={handleReanalyzePress}
+        className="w-full h-[46px] bg-[#16203D] border border-[#293B6B] rounded-xl flex-row items-center justify-center mb-3 active:opacity-85"
+        accessibilityRole="button"
+        accessibilityLabel="Re-analyze writing"
+      >
+        <Ionicons
+          name="refresh-outline"
+          size={16}
+          color="#38BDF8"
+          style={{ marginRight: 6 }}
+        />
+        <Text className="text-[13px] font-bold text-white">
+          Re-analyze Writing
+        </Text>
+      </Pressable>
+
+      <Pressable
+        onPress={onClose}
+        className="w-full h-[44px] bg-[#121626] border border-[#1E2540] rounded-xl items-center justify-center mb-6 active:opacity-80"
+        accessibilityRole="button"
+        accessibilityLabel="Close report"
+      >
+        <Text className="text-[13px] font-bold text-[#CBD5E1]">
+          Close Report
+        </Text>
+      </Pressable>
+
+      {/* Important Limitations Banner */}
+      <View className="bg-[#0B1020] border border-[#162244] rounded-2xl p-4 flex-row items-start">
+        <Ionicons
+          name="shield-outline"
+          size={17}
+          color="#38BDF8"
+          style={{ marginTop: 2, marginRight: 10 }}
+        />
+        <View className="flex-1">
+          <Text className="text-[11px] font-bold tracking-[0.8px] text-[#38BDF8] uppercase mb-1">
+            Important Limitations
+          </Text>
+          <Text className="text-[11.5px] text-[#8E96B0] leading-[17px]">
+            All writing indicators and stylometric scores are not conclusive
+            proof of AI usage or plagiarism. These signals are intended to
+            support human investigation and contextual review. Faculty
+            decisions should always consider the complete academic context
+            and evidence.
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
 
   return (
     <Modal
@@ -206,57 +507,13 @@ export default function AnalysisReportModal({
           </View>
         </View>
 
-        <ScrollView
-          className="flex-1 px-5 pt-4"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Subheader & Back Button */}
-          <View className="flex-row items-center justify-between mb-2">
-            <Pressable
-              onPress={onClose}
-              hitSlop={10}
-              className="w-8 h-8 rounded-xl bg-[#14192C] border border-[#222943] items-center justify-center active:opacity-80"
-              accessibilityRole="button"
-              accessibilityLabel="Back to dashboard"
-            >
-              <Ionicons name="arrow-back" size={16} color="#94A3B8" />
-            </Pressable>
-
-            <View className="flex-row items-center">
-              <View className="bg-[#0C1226] border border-[#19244D] rounded-full px-3 py-1 mr-2">
-                <Text className="text-[10px] font-bold tracking-[1.5px] text-[#38BDF8] uppercase">
-                  • ANALYZE • VERIFY • TRUST
-                </Text>
-              </View>
-              <Text className="text-[11px] font-bold tracking-[0.5px] text-[#64748B]">
-                # VR-{idShort}
-              </Text>
-            </View>
-          </View>
-
-          {/* Title & Metadata */}
-          <Text className="text-[22px] font-bold text-white mb-1">
-            Analysis Report
-          </Text>
-          <View className="flex-row items-center mb-1">
-            <Ionicons
-              name="document-text"
-              size={14}
-              color="#38BDF8"
-              style={{ marginRight: 6 }}
-            />
-            <Text
-              className="text-[13px] font-semibold text-[#CBD5E1] flex-1"
-              numberOfLines={1}
-            >
-              {fileName}
-            </Text>
-          </View>
-          <Text className="text-[11.5px] text-[#8E96B0] mb-5">
-            {fileSizeStr} • Analyzed {analyzedDateStr}
-          </Text>
-
-          {/* 4-Card Overview Metric Grid (2x2) */}
+        {activeTab === "summary" ? (
+          <ScrollView
+            className="flex-1 px-5 pt-4"
+            showsVerticalScrollIndicator={false}
+          >
+            {renderModalHeader()}
+              {/* 4-Card Overview Metric Grid (2x2) */}
           <View className="flex-row mb-3">
             {/* Card 1: AI Writing Indicators (Signal Level) */}
             <View className="flex-1 bg-[#101426] border border-[#202948] rounded-[20px] p-3.5 mr-1.5">
@@ -325,17 +582,92 @@ export default function AnalysisReportModal({
                 <Ionicons
                   name="shield-checkmark-outline"
                   size={16}
-                  color="#10B981"
+                  color={studentStatusTheme.dotColor}
                 />
-                <View className="w-2 h-2 rounded-full bg-[#10B981]" />
+                <View
+                  style={{ backgroundColor: studentStatusTheme.dotColor }}
+                  className="w-2 h-2 rounded-full"
+                />
               </View>
-              <Text className="text-[15px] font-extrabold text-[#34D399] mb-0.5">
-                {assignment.reviewStatus || "Completed"}
+              <Text
+                className={`text-[15px] font-extrabold ${studentStatusTheme.text} mb-0.5`}
+                numberOfLines={1}
+              >
+                {effectiveReviewStatus}
               </Text>
-              <Text className="text-[10px] text-[#8E96B0]">
-                Faculty Review Queue
+              <Text className="text-[10px] text-[#8E96B0]" numberOfLines={2}>
+                {studentStatusTheme.desc}
               </Text>
             </View>
+          </View>
+
+          {/* Task 14 & Task 12: Faculty Review Status & Feedback Banner */}
+          <View className="bg-[#101426] border border-[#202948] rounded-[20px] p-4 mb-5">
+            <View className="flex-row items-center justify-between mb-2">
+              <View className="flex-row items-center">
+                <Ionicons
+                  name="shield-checkmark"
+                  size={16}
+                  color={studentStatusTheme.dotColor}
+                  style={{ marginRight: 6 }}
+                />
+                <Text className="text-[13.5px] font-bold text-white">
+                  Faculty Review Status
+                </Text>
+              </View>
+              <View
+                className={`px-2.5 py-0.5 rounded-full border ${studentStatusTheme.bg} ${studentStatusTheme.border}`}
+              >
+                <Text
+                  className={`text-[10px] font-bold ${studentStatusTheme.text}`}
+                >
+                  • {effectiveReviewStatus}
+                </Text>
+              </View>
+            </View>
+
+            {effectiveLastReviewedAt ? (
+              <Text className="text-[10.5px] text-[#64748B] mb-2.5">
+                Last reviewed: {formatDate(effectiveLastReviewedAt)}
+              </Text>
+            ) : null}
+
+            {teacherFeedbackNotes ? (
+              <View className="bg-[#080B14] border border-[#182038] rounded-xl p-3 mb-2.5">
+                <Text className="text-[10px] font-bold uppercase tracking-[0.5px] text-[#38BDF8] mb-1">
+                  Instructor Final Feedback
+                </Text>
+                <Text className="text-[12px] text-[#CBD5E1] leading-[17px]">
+                  {teacherFeedbackNotes}
+                </Text>
+              </View>
+            ) : null}
+
+            {teacherCommentsList.length > 0 ? (
+              <View className="mt-1">
+                <Text className="text-[10.5px] font-bold uppercase tracking-[0.5px] text-[#8E96B0] mb-1.5">
+                  Instructor Feedback Thread ({teacherCommentsList.length})
+                </Text>
+                {teacherCommentsList.map((c, cIdx) => (
+                  <View
+                    key={`tc-${c.commentId || cIdx}`}
+                    className="bg-[#080B14] border border-[#182038] rounded-xl p-2.5 mb-2"
+                  >
+                    <View className="flex-row items-center justify-between mb-0.5">
+                      <Text className="text-[11px] font-bold text-[#A5B4FC]">
+                        {c.teacherName || "Instructor"}
+                      </Text>
+                      <Text className="text-[9.5px] text-[#64748B]">
+                        {formatDate(c.createdAt)}
+                      </Text>
+                    </View>
+                    <Text className="text-[11.5px] text-[#CBD5E1] leading-[16px]">
+                      {c.text}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
 
           {/* AI Writing Indicators Section */}
@@ -435,6 +767,40 @@ export default function AnalysisReportModal({
                       Metric: {indicator.metricValue ?? "Elevated"}
                     </Text>
                   </View>
+
+                  {/* View Highlight in Document Button */}
+                  {firstEvidence ? (
+                    <Pressable
+                      onPress={() => {
+                        const targetFindingId =
+                          firstEvidence.findingId ||
+                          evidenceData?.evidenceMap?.findings?.find(
+                            (f) => f.indicatorCode === indicator.code
+                          )?.findingId ||
+                          null;
+                        if (targetFindingId) {
+                          setActiveFindingId(targetFindingId);
+                        }
+                        if (indicator.code) {
+                          setSelectedCategory(indicator.code);
+                        }
+                        setActiveTab("viewer");
+                      }}
+                      className="bg-[#141C34] border border-[#222E54] rounded-xl py-2 px-3 flex-row items-center justify-center mt-2.5 active:opacity-75"
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${indicatorTitle} in document viewer`}
+                    >
+                      <Ionicons
+                        name="eye-outline"
+                        size={13}
+                        color="#38BDF8"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text className="text-[11.5px] font-bold text-[#38BDF8]">
+                        View Highlight in Document
+                      </Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               );
             })
@@ -602,6 +968,85 @@ export default function AnalysisReportModal({
                               </Text>
                             </View>
                           </View>
+
+                          {/* Part D: Faculty Review Decision on Finding */}
+                          {ev.findingId && findingReviewsMap[ev.findingId] ? (
+                            <View className="bg-[#0C1224] border border-[#1A264D] rounded-xl p-3 my-2.5 flex-row items-center justify-between">
+                              <View className="flex-1 mr-2">
+                                <Text className="text-[10px] font-bold tracking-[0.5px] uppercase text-[#8E96B0] mb-0.5">
+                                  Faculty Review Decision
+                                </Text>
+                                <Text className="text-[11.5px] text-[#CBD5E1]">
+                                  {findingReviewsMap[ev.findingId].decision === "Accepted"
+                                    ? "Faculty agreed with this indicator flag."
+                                    : findingReviewsMap[ev.findingId].decision === "Rejected"
+                                    ? "Faculty dismissed this flag as natural variation / false positive."
+                                    : "Faculty review is pending."}
+                                </Text>
+                              </View>
+                              <View
+                                className={`px-2 py-0.5 rounded-full border ${
+                                  findingReviewsMap[ev.findingId].decision === "Accepted"
+                                    ? "bg-[#09221C] border-[#144837]"
+                                    : findingReviewsMap[ev.findingId].decision === "Rejected"
+                                    ? "bg-[#2B1417] border-[#522229]"
+                                    : "bg-[#181F38] border-[#25325C]"
+                                }`}
+                              >
+                                <Text
+                                  className={`text-[9.5px] font-bold ${
+                                    findingReviewsMap[ev.findingId].decision === "Accepted"
+                                      ? "text-[#34D399]"
+                                      : findingReviewsMap[ev.findingId].decision === "Rejected"
+                                      ? "text-[#F87171]"
+                                      : "text-[#94A3B8]"
+                                  }`}
+                                >
+                                  {findingReviewsMap[ev.findingId].decision === "Accepted"
+                                    ? "✓ Flag Accepted"
+                                    : findingReviewsMap[ev.findingId].decision === "Rejected"
+                                    ? "✗ Flag Dismissed"
+                                    : "Decision Pending"}
+                                </Text>
+                              </View>
+                            </View>
+                          ) : null}
+
+                          {/* Part E: View in Document Viewer Button */}
+                          {ev.charStart !== null && ev.charStart !== undefined ? (
+                            <Pressable
+                              onPress={() => {
+                                const targetFindingId =
+                                  ev.findingId ||
+                                  evidenceData?.evidenceMap?.findings?.find(
+                                    (f) =>
+                                      (f.charStart === ev.charStart && f.charEnd === ev.charEnd) ||
+                                      f.indicatorCode === ind.code
+                                  )?.findingId ||
+                                  null;
+                                if (targetFindingId) {
+                                  setActiveFindingId(targetFindingId);
+                                }
+                                if (ind.code) {
+                                  setSelectedCategory(ind.code);
+                                }
+                                setActiveTab("viewer");
+                              }}
+                              className="bg-[#141C34] border border-[#222E54] rounded-xl py-2 px-3 flex-row items-center justify-center mt-3 active:opacity-75"
+                              accessibilityRole="button"
+                              accessibilityLabel={`View section ${indIdx + 1} in document viewer`}
+                            >
+                              <Ionicons
+                                name="eye-outline"
+                                size={13}
+                                color="#38BDF8"
+                                style={{ marginRight: 6 }}
+                              />
+                              <Text className="text-[11.5px] font-bold text-[#38BDF8]">
+                                View Highlight in Document Viewer
+                              </Text>
+                            </Pressable>
+                          ) : null}
                         </View>
                       ) : null}
                     </View>
@@ -609,58 +1054,69 @@ export default function AnalysisReportModal({
                 })}
             </View>
           ) : null}
-
-          {/* Action Buttons */}
-          <Pressable
-            onPress={handleReanalyzePress}
-            className="w-full h-[46px] bg-[#16203D] border border-[#293B6B] rounded-xl flex-row items-center justify-center mb-3 active:opacity-85"
-            accessibilityRole="button"
-            accessibilityLabel="Re-analyze writing"
-          >
-            <Ionicons
-              name="refresh-outline"
-              size={16}
-              color="#38BDF8"
-              style={{ marginRight: 6 }}
-            />
-            <Text className="text-[13px] font-bold text-white">
-              Re-analyze Writing
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={onClose}
-            className="w-full h-[44px] bg-[#121626] border border-[#1E2540] rounded-xl items-center justify-center mb-6 active:opacity-80"
-            accessibilityRole="button"
-            accessibilityLabel="Close report"
-          >
-            <Text className="text-[13px] font-bold text-[#CBD5E1]">
-              Close Report
-            </Text>
-          </Pressable>
-
-          {/* Important Limitations Banner */}
-          <View className="bg-[#0B1020] border border-[#162244] rounded-2xl p-4 mb-8 flex-row items-start">
-            <Ionicons
-              name="shield-outline"
-              size={17}
-              color="#38BDF8"
-              style={{ marginTop: 2, marginRight: 10 }}
-            />
-            <View className="flex-1">
-              <Text className="text-[11px] font-bold tracking-[0.8px] text-[#38BDF8] uppercase mb-1">
-                Important Limitations
-              </Text>
-              <Text className="text-[11.5px] text-[#8E96B0] leading-[17px]">
-                All writing indicators and stylometric scores are not conclusive
-                proof of AI usage or plagiarism. These signals are intended to
-                support human investigation and contextual review. Faculty
-                decisions should always consider the complete academic context
-                and evidence.
-              </Text>
-            </View>
+              {renderActionButtons()}
+          </ScrollView>
+        ) : (
+          <View className="flex-1 px-5 pt-4">
+            {evidenceLoading ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {renderModalHeader()}
+                <View className="bg-[#101426] border border-[#202948] rounded-[20px] p-8 items-center my-2">
+                  <ActivityIndicator size="large" color="#38BDF8" />
+                  <Text className="text-[13.5px] font-bold text-white mt-3 mb-1">
+                    Loading Document Evidence...
+                  </Text>
+                  <Text className="text-[11.5px] text-[#8E96B0] text-center">
+                    Retrieving original extracted text and synchronizing finding offsets.
+                  </Text>
+                </View>
+                {renderActionButtons()}
+              </ScrollView>
+            ) : evidenceError ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {renderModalHeader()}
+                <View className="bg-[#2B1417] border border-[#522229] rounded-[20px] p-5 my-2">
+                  <View className="flex-row items-center mb-2">
+                    <Ionicons
+                      name="alert-circle"
+                      size={18}
+                      color="#F87171"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text className="text-[13.5px] font-bold text-[#F87171]">
+                      Evidence Unavailable
+                    </Text>
+                  </View>
+                  <Text className="text-[12px] text-[#CBD5E1] mb-3">
+                    {evidenceError}
+                  </Text>
+                  <Pressable
+                    onPress={loadEvidence}
+                    className="bg-[#3D1A1F] border border-[#6B242C] rounded-xl py-2 px-4 self-start active:opacity-80"
+                    accessibilityRole="button"
+                    accessibilityLabel="Retry loading evidence"
+                  >
+                    <Text className="text-[11.5px] font-bold text-white">
+                      Retry Loading
+                    </Text>
+                  </Pressable>
+                </View>
+                {renderActionButtons()}
+              </ScrollView>
+            ) : (
+              <HighlightedEvidenceViewer
+                extractedText={evidenceData?.extractedText || ""}
+                evidenceMap={evidenceData?.evidenceMap || null}
+                activeFindingId={activeFindingId}
+                onSelectFinding={setActiveFindingId}
+                selectedCategory={selectedCategory}
+                onSelectCategory={setSelectedCategory}
+                ListHeaderComponent={renderModalHeader}
+                ListFooterComponent={renderActionButtons}
+              />
+            )}
           </View>
-        </ScrollView>
+        )}
       </SafeAreaView>
     </Modal>
   );

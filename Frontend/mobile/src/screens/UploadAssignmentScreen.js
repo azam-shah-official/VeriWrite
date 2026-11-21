@@ -13,7 +13,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { validatePickedDocument } from "../utils/fileValidation";
 import { ASSIGNMENT_ENDPOINTS } from "../config/api";
-import { authenticatedRequest } from "../utils/apiClient";
+import { authenticatedRequest, fetchTeacherSubjects } from "../utils/apiClient";
 
 const ALLOWED_FORMAT_BADGES = ["PDF", "DOCX", "TXT", "JPG", "JPEG", "PNG"];
 const MAX_TITLE_LENGTH = 150;
@@ -37,9 +37,88 @@ export default function UploadAssignmentScreen({
   const [fileError, setFileError] = useState("");
   const [isPickingFile, setIsPickingFile] = useState(false);
 
+  // Dynamic registered teacher selection states
+  const [teachers, setTeachers] = useState([]);
+  const [selectedTeacherId, setSelectedTeacherId] = useState("");
+  const [isLoadingTeachers, setIsLoadingTeachers] = useState(true);
+  const [teachersError, setTeachersError] = useState("");
+  const [isTeacherDropdownOpen, setIsTeacherDropdownOpen] = useState(false);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
+
+  // Fetch registered teachers from student's academic institution
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchTeachers = async () => {
+      setIsLoadingTeachers(true);
+      setTeachersError("");
+      try {
+        const response = await authenticatedRequest(
+          ASSIGNMENT_ENDPOINTS.TEACHERS,
+          {
+            method: "GET",
+            onUnauthorized,
+          }
+        );
+
+        if (!isMounted) return;
+
+        if (response.ok && response.data?.success) {
+          const list = Array.isArray(response.data.teachers)
+            ? response.data.teachers
+            : [];
+          setTeachers(list);
+          if (list.length === 1) {
+            setSelectedTeacherId(list[0].id);
+          }
+        } else {
+          setTeachersError(
+            response.data?.message ||
+              "Unable to load teachers for your institution."
+          );
+        }
+      } catch (_err) {
+        if (isMounted) {
+          setTeachersError("Failed to connect to faculty directory.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingTeachers(false);
+        }
+      }
+    };
+
+    fetchTeachers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [onUnauthorized]);
+
+  const [teacherSubjects, setTeacherSubjects] = useState([]);
+
+  useEffect(() => {
+    if (!selectedTeacherId) {
+      setTeacherSubjects([]);
+      return;
+    }
+
+    let isMounted = true;
+    fetchTeacherSubjects(selectedTeacherId)
+      .then((res) => {
+        if (isMounted && res.ok && Array.isArray(res.data?.subjects)) {
+          setTeacherSubjects(res.data.subjects);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedTeacherId]);
 
   useEffect(() => {
     if (typeof onUploadingChange === "function") {
@@ -165,6 +244,13 @@ export default function UploadAssignmentScreen({
       return;
     }
 
+    if (!selectedTeacherId) {
+      setSubmitError(
+        "Teacher selection is required. Please select a registered teacher from your institution."
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -172,6 +258,8 @@ export default function UploadAssignmentScreen({
       const formData = new FormData();
       formData.append("title", trimmedTitle);
       formData.append("course", trimmedCourse);
+      formData.append("teacherId", selectedTeacherId);
+      formData.append("teacher", selectedTeacherId);
       if (trimmedNotes) {
         formData.append("notes", trimmedNotes);
       }
@@ -259,6 +347,8 @@ export default function UploadAssignmentScreen({
     (selectedFile.fileType === "JPG" ||
       selectedFile.fileType === "JPEG" ||
       selectedFile.fileType === "PNG");
+
+  const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);
 
   return (
     <ScrollView
@@ -365,6 +455,181 @@ export default function UploadAssignmentScreen({
             className="flex-1 text-[13.5px] text-[#E2E8F0] py-2"
           />
         </View>
+
+        {teacherSubjects.length > 0 ? (
+          <View className="mt-2">
+            <Text className="text-[10px] font-bold tracking-[0.5px] text-[#64748B] uppercase mb-1">
+              Curriculum Subjects ({selectedTeacher?.name}):
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {teacherSubjects.map((sub) => {
+                const fullSubjectStr = sub.code
+                  ? `${sub.code}: ${sub.name}`
+                  : sub.name;
+                const isSelected = courseSubject === fullSubjectStr;
+                return (
+                  <Pressable
+                    key={`tsub-${sub.id}`}
+                    onPress={() => setCourseSubject(fullSubjectStr)}
+                    className={`mr-2 px-2.5 py-1 rounded-lg border ${
+                      isSelected
+                        ? "bg-[#0C243B] border-[#38BDF8]"
+                        : "bg-[#0B1020] border-[#182346]"
+                    }`}
+                  >
+                    <Text
+                      className={`text-[10.5px] font-bold ${
+                        isSelected ? "text-[#38BDF8]" : "text-[#94A3B8]"
+                      }`}
+                    >
+                      {sub.code ? `${sub.code} - ` : ""}
+                      {sub.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Field 3: Teacher Name (Institute-Filtered Dropdown) */}
+      <View className="mb-4">
+        <View className="flex-row items-center justify-between mb-2">
+          <Text className="text-[12px] font-semibold text-[#CBD5E1]">
+            Teacher Name
+          </Text>
+          <Text className="text-[11px] font-semibold text-[#38BDF8]">
+            Required
+          </Text>
+        </View>
+
+        {/* Dropdown Selector Header */}
+        <Pressable
+          onPress={() => {
+            if (!isLoadingTeachers && teachers.length > 0) {
+              setIsTeacherDropdownOpen((prev) => !prev);
+            }
+          }}
+          disabled={isSubmitting || isLoadingTeachers || teachers.length === 0}
+          className={`flex-row items-center justify-between bg-[#080B16] border ${
+            isTeacherDropdownOpen ? "border-[#38BDF8]" : "border-[#192036]"
+          } rounded-xl px-3.5 h-[48px] ${
+            isSubmitting || (teachers.length === 0 && !isLoadingTeachers)
+              ? "opacity-80"
+              : "active:opacity-90"
+          }`}
+          accessibilityRole="button"
+          accessibilityLabel="Select Teacher"
+        >
+          <View className="flex-row items-center flex-1 mr-2">
+            <Ionicons
+              name="person-outline"
+              size={17}
+              color={selectedTeacher ? "#38BDF8" : "#64748B"}
+              style={{ marginRight: 10 }}
+            />
+            {isLoadingTeachers ? (
+              <View className="flex-row items-center">
+                <ActivityIndicator
+                  size="small"
+                  color="#38BDF8"
+                  style={{ marginRight: 8 }}
+                />
+                <Text className="text-[13px] text-[#94A3B8]">
+                  Loading registered teachers...
+                </Text>
+              </View>
+            ) : teachersError ? (
+              <Text className="text-[13px] text-[#F87171] numberOfLines={1}">
+                {teachersError}
+              </Text>
+            ) : teachers.length === 0 ? (
+              <Text className="text-[13px] text-[#94A3B8]">
+                No registered teachers in your institute
+              </Text>
+            ) : selectedTeacher ? (
+              <Text className="text-[13.5px] font-medium text-[#E2E8F0] numberOfLines={1}">
+                {selectedTeacher.name}
+              </Text>
+            ) : (
+              <Text className="text-[13.5px] text-[#475569]">
+                Select your teacher
+              </Text>
+            )}
+          </View>
+
+          {!isLoadingTeachers && teachers.length > 0 && (
+            <Ionicons
+              name={isTeacherDropdownOpen ? "chevron-up" : "chevron-down"}
+              size={18}
+              color="#94A3B8"
+            />
+          )}
+        </Pressable>
+
+        {/* Dropdown Options List */}
+        {isTeacherDropdownOpen && !isLoadingTeachers && teachers.length > 0 && (
+          <View className="bg-[#0C1020] border border-[#232B47] rounded-xl mt-1.5 overflow-hidden shadow-lg z-10">
+            {teachers.map((teacher, tIdx) => {
+              const isSelected = teacher.id === selectedTeacherId;
+              return (
+                <Pressable
+                  key={teacher.id || `teacher-${tIdx}`}
+                  onPress={() => {
+                    setSelectedTeacherId(teacher.id);
+                    setIsTeacherDropdownOpen(false);
+                    if (submitError) setSubmitError("");
+                  }}
+                  className={`flex-row items-center justify-between px-3.5 py-3 border-b border-[#1A223B] ${
+                    isSelected ? "bg-[#141C38]" : "active:bg-[#13192F]"
+                  }`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${teacher.name}`}
+                >
+                  <View className="flex-1 mr-2">
+                    <Text
+                      className={`text-[13.5px] ${
+                        isSelected
+                          ? "font-bold text-[#38BDF8]"
+                          : "font-medium text-[#E2E8F0]"
+                      }`}
+                    >
+                      {teacher.name}
+                    </Text>
+                    {teacher.email ? (
+                      <Text className="text-[11px] text-[#64748B] mt-0.5">
+                        {teacher.email}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {isSelected && (
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={18}
+                      color="#38BDF8"
+                    />
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Informative notice if no teachers registered in institute */}
+        {!isLoadingTeachers && teachers.length === 0 && !teachersError && (
+          <View className="flex-row items-center bg-[#1B1924] border border-[#F59E0B]/30 rounded-xl p-2.5 mt-2">
+            <Ionicons
+              name="alert-circle-outline"
+              size={16}
+              color="#F59E0B"
+              style={{ marginRight: 8 }}
+            />
+            <Text className="text-[11.5px] text-[#FDE68A] flex-1 leading-[16px]">
+              No registered teachers found for your institution. Ask your faculty to register with your institution name.
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Assignment File Section Header */}
@@ -454,7 +719,7 @@ export default function UploadAssignmentScreen({
         </View>
       ) : null}
 
-      {/* Selected-File Preview Row (Rendered when a valid file is selected) */}
+      {/* Selected File Card */}
       {selectedFile ? (
         <View className="bg-[#12172A] border border-[#202842] rounded-2xl p-3.5 mb-3.5 flex-row items-center">
           {/* Document / Image Icon Box */}
@@ -529,7 +794,7 @@ export default function UploadAssignmentScreen({
         </View>
       ) : null}
 
-      {/* Upload / API Submission Error Banner */}
+      {/* Submission Error Banner */}
       {submitError ? (
         <View className="bg-[#261219] border border-[#EF4444]/50 rounded-2xl p-3.5 mb-3.5 flex-row items-start">
           <Ionicons

@@ -2,6 +2,12 @@ import mongoose from "mongoose";
 
 const evidenceSchema = new mongoose.Schema(
   {
+    findingId: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: [100, "Finding ID must not exceed 100 characters"],
+    },
     snippet: {
       type: String,
       required: [true, "Evidence snippet is required"],
@@ -194,6 +200,9 @@ const teacherReviewSchema = new mongoose.Schema(
       enum: {
         values: [
           "Pending",
+          "Approved",
+          "Needs Clarification",
+          "Further Review Required",
           "Authentic Authorship Confirmed",
           "Discussed with Student",
           "Revision Requested",
@@ -217,12 +226,140 @@ const teacherReviewSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const findingReviewSchema = new mongoose.Schema(
+  {
+    findingId: {
+      type: String,
+      required: [true, "Finding ID is required"],
+      trim: true,
+    },
+    decision: {
+      type: String,
+      enum: {
+        values: ["Accepted", "Rejected", "Pending"],
+        message: "Decision must be Accepted, Rejected, or Pending",
+      },
+      default: "Pending",
+    },
+    teacher: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    reviewedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    notes: {
+      type: String,
+      trim: true,
+      maxlength: [500, "Finding review notes must not exceed 500 characters"],
+      default: "",
+    },
+  },
+  { _id: false }
+);
+
+const teacherCommentSchema = new mongoose.Schema(
+  {
+    commentId: {
+      type: String,
+      default: () => new mongoose.Types.ObjectId().toString(),
+    },
+    teacher: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    teacherName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    text: {
+      type: String,
+      required: [true, "Comment text is required"],
+      trim: true,
+      maxlength: [2000, "Comment cannot exceed 2000 characters"],
+    },
+    findingId: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false }
+);
+
+const auditRecordSchema = new mongoose.Schema(
+  {
+    recordId: {
+      type: String,
+      default: () => new mongoose.Types.ObjectId().toString(),
+    },
+    submissionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Assignment",
+      required: true,
+    },
+    findingId: {
+      type: String,
+      default: null,
+    },
+    action: {
+      type: String,
+      required: true,
+      enum: [
+        "FINDING_ACCEPTED",
+        "FINDING_REJECTED",
+        "FINDING_DECISION_UPDATED",
+        "TEACHER_COMMENT_ADDED",
+        "OVERALL_VERDICT_SUBMITTED",
+        "OVERALL_VERDICT_CHANGED",
+        "REVIEW_STATUS_CHANGED",
+      ],
+    },
+    previousValue: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    newValue: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    teacher: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    teacherName: {
+      type: String,
+      default: "",
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false }
+);
+
 const assignmentSchema = new mongoose.Schema(
   {
     student: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: [true, "Student reference is required"],
+      index: true,
+    },
+    teacher: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
       index: true,
     },
     title: {
@@ -337,6 +474,7 @@ const assignmentSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Feature 1: AI Writing Analysis fields
     analysisStatus: {
       type: String,
       enum: {
@@ -349,9 +487,18 @@ const assignmentSchema = new mongoose.Schema(
     reviewStatus: {
       type: String,
       enum: {
-        values: ["Pending", "Needs Human Review", "Completed"],
+        values: [
+          "Pending",
+          "Pending Review",
+          "Needs Human Review",
+          "Under Review",
+          "Completed",
+          "Reviewed",
+          "Needs Clarification",
+          "Further Review Required",
+        ],
         message:
-          "Review status must be one of Pending, Needs Human Review, or Completed",
+          "Review status must be one of Pending, Pending Review, Needs Human Review, Under Review, Completed, Reviewed, Needs Clarification, or Further Review Required",
       },
       default: "Pending",
     },
@@ -374,6 +521,22 @@ const assignmentSchema = new mongoose.Schema(
         isSharedWithStudent: false,
       }),
     },
+    findingReviews: {
+      type: [findingReviewSchema],
+      default: [],
+    },
+    teacherComments: {
+      type: [teacherCommentSchema],
+      default: [],
+    },
+    auditTrail: {
+      type: [auditRecordSchema],
+      default: [],
+    },
+    lastReviewedAt: {
+      type: Date,
+      default: null,
+    },
     analysisLockToken: {
       type: String,
       default: null,
@@ -381,6 +544,17 @@ const assignmentSchema = new mongoose.Schema(
     analysisLockAcquiredAt: {
       type: Date,
       default: null,
+    },
+    // Institutional snapshot fields
+    institution: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    institutionNormalized: {
+      type: String,
+      trim: true,
+      default: "",
     },
   },
   {

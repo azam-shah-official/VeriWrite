@@ -83,7 +83,13 @@ export function buildEvidenceItem(extractedText, params) {
     paragraphIndex = 0,
     sentenceIndex = null,
     flagReason = "Stylometric pattern identified.",
+    findingId = null,
   } = params;
+
+  const safeFindingId =
+    typeof findingId === "string" && findingId.trim().length > 0
+      ? findingId.trim()
+      : null;
 
   // Document-level unanchored evidence (null offsets)
   if (charStart === null && charEnd === null) {
@@ -93,6 +99,7 @@ export function buildEvidenceItem(extractedText, params) {
         : "Document-level stylometric pattern identified.";
 
     const docEvidence = {
+      findingId: safeFindingId,
       snippet: snippetText,
       paragraphIndex,
       sentenceIndex: null,
@@ -127,6 +134,7 @@ export function buildEvidenceItem(extractedText, params) {
     : flagReason;
 
   const evidenceItem = {
+    findingId: safeFindingId,
     snippet,
     paragraphIndex,
     sentenceIndex: typeof sentenceIndex === "number" ? sentenceIndex : null,

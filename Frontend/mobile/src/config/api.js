@@ -14,13 +14,54 @@ export const AUTH_ENDPOINTS = {
   RESET_PASSWORD: (token) =>
     `${API_BASE_URL}/auth/reset-password/${encodeURIComponent(token)}`,
   ME: `${API_BASE_URL}/auth/me`,
+  UPDATE_PROFILE: `${API_BASE_URL}/auth/profile`,
 };
 
 export const ASSIGNMENT_ENDPOINTS = {
   MY_ASSIGNMENTS: `${API_BASE_URL}/assignments/my`,
   UPLOAD: `${API_BASE_URL}/assignments/upload`,
+  TEACHERS: `${API_BASE_URL}/assignments/teachers`,
   ANALYZE: (id) =>
     `${API_BASE_URL}/assignments/${encodeURIComponent(id)}/analyze`,
+  EVIDENCE: (id) =>
+    `${API_BASE_URL}/assignments/${encodeURIComponent(id)}/evidence`,
+  REVIEW_STATUS: (id) =>
+    `${API_BASE_URL}/assignments/${encodeURIComponent(id)}/review-status`,
+  COMMENTS: (id) =>
+    `${API_BASE_URL}/assignments/${encodeURIComponent(id)}/comments`,
+  AUDIT_TRAIL: (id) =>
+    `${API_BASE_URL}/assignments/${encodeURIComponent(id)}/audit-trail`,
+};
+
+export const SUBJECT_ENDPOINTS = {
+  MY_SUBJECTS: `${API_BASE_URL}/subjects/my`,
+  CREATE: `${API_BASE_URL}/subjects`,
+  UPDATE: (id) => `${API_BASE_URL}/subjects/${encodeURIComponent(id)}`,
+  DELETE: (id) => `${API_BASE_URL}/subjects/${encodeURIComponent(id)}`,
+  BY_TEACHER: (teacherId) =>
+    `${API_BASE_URL}/subjects/teacher/${encodeURIComponent(teacherId)}`,
+};
+
+export const TEACHER_ENDPOINTS = {
+  DASHBOARD_STATS: `${API_BASE_URL}/teacher/dashboard/stats`,
+  SUBMISSIONS: (params = "") =>
+    `${API_BASE_URL}/teacher/submissions${params ? `?${params}` : ""}`,
+  SUBMIT_REVIEW: (id) =>
+    `${API_BASE_URL}/teacher/submissions/${encodeURIComponent(id)}/review`,
+  FINDING_DECISION: (id, findingId) =>
+    `${API_BASE_URL}/teacher/submissions/${encodeURIComponent(id)}/findings/${encodeURIComponent(findingId)}/decision`,
+  COMMENTS: (id) =>
+    `${API_BASE_URL}/teacher/submissions/${encodeURIComponent(id)}/comments`,
+  AUDIT_TRAIL: (id) =>
+    `${API_BASE_URL}/teacher/submissions/${encodeURIComponent(id)}/audit-trail`,
+  ASSIGNMENTS: `${API_BASE_URL}/teacher/assignments`,
+  CREATE_ASSIGNMENT: `${API_BASE_URL}/teacher/assignments`,
+  ASSIGNMENT_BY_ID: (id) =>
+    `${API_BASE_URL}/teacher/assignments/${encodeURIComponent(id)}`,
+  UPDATE_ASSIGNMENT: (id) =>
+    `${API_BASE_URL}/teacher/assignments/${encodeURIComponent(id)}`,
+  DELETE_ASSIGNMENT: (id) =>
+    `${API_BASE_URL}/teacher/assignments/${encodeURIComponent(id)}`,
 };
 
 export const PROTECTED_ENDPOINTS = {

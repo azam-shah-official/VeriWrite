@@ -51,6 +51,51 @@ export const isSmtpConfigured = () => {
   );
 };
 
+export const verifySmtpConnection = async () => {
+  if (!isSmtpConfigured()) {
+    return {
+      configured: false,
+      verified: false,
+      message: "SMTP credentials not configured in environment.",
+    };
+  }
+
+  const cleanUser = (process.env.SMTP_USER || "").trim();
+  const cleanPass = (process.env.SMTP_PASS || "").replace(/\s+/g, "");
+  const smtpHost = (process.env.SMTP_HOST || "smtp.gmail.com").trim();
+  const smtpPort = Number(process.env.SMTP_PORT) || 587;
+  const smtpSecure =
+    process.env.SMTP_SECURE === "true" || smtpPort === 465;
+
+  const transporter = nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpSecure,
+    auth: {
+      user: cleanUser,
+      pass: cleanPass,
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 8000,
+  });
+
+  try {
+    await transporter.verify();
+    return {
+      configured: true,
+      verified: true,
+      message: "SMTP server verified successfully.",
+    };
+  } catch (err) {
+    return {
+      configured: true,
+      verified: false,
+      message: err.message,
+      code: err.code,
+    };
+  }
+};
+
 export const sendPasswordResetEmail = async ({ to, name, resetToken }) => {
   if (!isSmtpConfigured()) {
     const configError = new Error(
@@ -60,18 +105,25 @@ export const sendPasswordResetEmail = async ({ to, name, resetToken }) => {
     throw configError;
   }
 
+  const cleanUser = (process.env.SMTP_USER || "").trim();
+  // Strip embedded spaces from App Passwords (e.g. Google 16-character App Passwords)
+  const cleanPass = (process.env.SMTP_PASS || "").replace(/\s+/g, "");
+  const smtpHost = (process.env.SMTP_HOST || "smtp.gmail.com").trim();
   const smtpPort = Number(process.env.SMTP_PORT) || 587;
   const smtpSecure =
     process.env.SMTP_SECURE === "true" || smtpPort === 465;
 
   const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST.trim(),
+    host: smtpHost,
     port: smtpPort,
     secure: smtpSecure,
     auth: {
-      user: process.env.SMTP_USER.trim(),
-      pass: process.env.SMTP_PASS.trim(),
+      user: cleanUser,
+      pass: cleanPass,
     },
+    connectionTimeout: 15000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
   });
 
   const baseResetUrl = getResetPasswordBaseDeepLink();

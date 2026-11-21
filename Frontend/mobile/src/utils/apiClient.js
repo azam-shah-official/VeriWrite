@@ -1,4 +1,9 @@
-import { AUTH_ENDPOINTS, ASSIGNMENT_ENDPOINTS } from "../config/api";
+import {
+  AUTH_ENDPOINTS,
+  ASSIGNMENT_ENDPOINTS,
+  SUBJECT_ENDPOINTS,
+  TEACHER_ENDPOINTS,
+} from "../config/api";
 import { getStoredToken, clearAuthSession } from "./authStorage";
 
 const DEFAULT_UPLOAD_TIMEOUT_MS = 60000; // 60 seconds for up to 10 MB multipart uploads
@@ -232,6 +237,14 @@ export const fetchCurrentUserProfile = async (options = {}) => {
   });
 };
 
+export const updateCurrentUserProfile = async (profileData, options = {}) => {
+  return authenticatedRequest(AUTH_ENDPOINTS.UPDATE_PROFILE, {
+    method: "PATCH",
+    body: profileData,
+    ...options,
+  });
+};
+
 export const fetchMyAssignments = async (options = {}) => {
   return authenticatedRequest(ASSIGNMENT_ENDPOINTS.MY_ASSIGNMENTS, {
     method: "GET",
@@ -245,5 +258,185 @@ export const triggerWritingAnalysis = async (assignmentId, options = {}) => {
     method: "POST",
     body: { forceReanalysis },
     ...restOptions,
+  });
+};
+
+export const fetchAssignmentEvidence = async (assignmentId, options = {}) => {
+  return authenticatedRequest(ASSIGNMENT_ENDPOINTS.EVIDENCE(assignmentId), {
+    method: "GET",
+    ...options,
+  });
+};
+
+export const fetchTeacherDashboardStats = async (options = {}) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.DASHBOARD_STATS, {
+    method: "GET",
+    ...options,
+  });
+};
+
+export const fetchTeacherSubmissions = async (queryParams = "", options = {}) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.SUBMISSIONS(queryParams), {
+    method: "GET",
+    ...options,
+  });
+};
+
+export const submitTeacherReview = async (submissionId, reviewData, options = {}) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.SUBMIT_REVIEW(submissionId), {
+    method: "PATCH",
+    body: reviewData,
+    ...options,
+  });
+};
+
+export const fetchTeacherAssignments = async (options = {}) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.ASSIGNMENTS, {
+    method: "GET",
+    ...options,
+  });
+};
+
+export const createTeacherAssignment = async (assignmentData, options = {}) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.CREATE_ASSIGNMENT, {
+    method: "POST",
+    body: assignmentData,
+    ...options,
+  });
+};
+
+export const updateTeacherAssignment = async (id, assignmentData, options = {}) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.UPDATE_ASSIGNMENT(id), {
+    method: "PUT",
+    body: assignmentData,
+    ...options,
+  });
+};
+
+export const deleteTeacherAssignment = async (id, options = {}) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.DELETE_ASSIGNMENT(id), {
+    method: "DELETE",
+    ...options,
+  });
+};
+
+export const fetchMySubjects = async (options = {}) => {
+  return authenticatedRequest(SUBJECT_ENDPOINTS.MY_SUBJECTS, {
+    method: "GET",
+    ...options,
+  });
+};
+
+export const createSubject = async (subjectData, options = {}) => {
+  return authenticatedRequest(SUBJECT_ENDPOINTS.CREATE, {
+    method: "POST",
+    body: subjectData,
+    ...options,
+  });
+};
+
+export const updateSubject = async (id, subjectData, options = {}) => {
+  return authenticatedRequest(SUBJECT_ENDPOINTS.UPDATE(id), {
+    method: "PUT",
+    body: subjectData,
+    ...options,
+  });
+};
+
+export const deleteSubject = async (id, options = {}) => {
+  return authenticatedRequest(SUBJECT_ENDPOINTS.DELETE(id), {
+    method: "DELETE",
+    ...options,
+  });
+};
+
+export const fetchTeacherSubjects = async (teacherId, options = {}) => {
+  return authenticatedRequest(SUBJECT_ENDPOINTS.BY_TEACHER(teacherId), {
+    method: "GET",
+    ...options,
+  });
+};
+
+/**
+ * Task 11: Teacher accepts or rejects an individual finding.
+ */
+export const submitFindingDecision = async (
+  assignmentId,
+  findingId,
+  decisionData,
+  options = {}
+) => {
+  return authenticatedRequest(
+    TEACHER_ENDPOINTS.FINDING_DECISION(assignmentId, findingId),
+    {
+      method: "PATCH",
+      body: decisionData,
+      ...options,
+    }
+  );
+};
+
+/**
+ * Task 12: Teacher posts feedback or discussion comment on a submission.
+ */
+export const addTeacherComment = async (
+  assignmentId,
+  commentData,
+  options = {}
+) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.COMMENTS(assignmentId), {
+    method: "POST",
+    body: commentData,
+    ...options,
+  });
+};
+
+/**
+ * Task 12: Teacher fetches comments thread for a submission.
+ */
+export const fetchTeacherComments = async (assignmentId, options = {}) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.COMMENTS(assignmentId), {
+    method: "GET",
+    ...options,
+  });
+};
+
+/**
+ * Task 13: Teacher fetches append-only audit trail for a submission.
+ */
+export const fetchTeacherAuditTrail = async (assignmentId, options = {}) => {
+  return authenticatedRequest(TEACHER_ENDPOINTS.AUDIT_TRAIL(assignmentId), {
+    method: "GET",
+    ...options,
+  });
+};
+
+/**
+ * Task 14: Student fetches real-time review status, finding decisions, and teacher feedback.
+ */
+export const fetchStudentReviewStatus = async (assignmentId, options = {}) => {
+  return authenticatedRequest(ASSIGNMENT_ENDPOINTS.REVIEW_STATUS(assignmentId), {
+    method: "GET",
+    ...options,
+  });
+};
+
+/**
+ * Task 12: Student fetches review comments thread on their submission.
+ */
+export const fetchStudentComments = async (assignmentId, options = {}) => {
+  return authenticatedRequest(ASSIGNMENT_ENDPOINTS.COMMENTS(assignmentId), {
+    method: "GET",
+    ...options,
+  });
+};
+
+/**
+ * Task 13: Student fetches review history and audit records for their submission.
+ */
+export const fetchStudentAuditTrail = async (assignmentId, options = {}) => {
+  return authenticatedRequest(ASSIGNMENT_ENDPOINTS.AUDIT_TRAIL(assignmentId), {
+    method: "GET",
+    ...options,
   });
 };

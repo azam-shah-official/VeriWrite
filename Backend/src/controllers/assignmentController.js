@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import mongoose from "mongoose";
+import User from "../models/User.js";
 import Assignment from "../models/Assignment.js";
 import { safeDeleteUploadedFile } from "../middleware/uploadMiddleware.js";
 import { extractTextFromFile } from "../utils/textExtractor.js";
@@ -13,12 +14,14 @@ import {
   runAnalysisPipeline,
   AnalysisServiceError,
 } from "../services/analysis/analysisService.js";
+import { extractEvidenceMap } from "../services/analysis/evidenceMapper.js";
 
 export {
   validateEvidenceOffsets,
   assertValidEvidenceOffsets,
   validateAnalysisResultEvidence,
   EvidenceValidationError,
+  extractEvidenceMap,
 };
 
 const MAX_TITLE_LENGTH = 150;
@@ -90,7 +93,11 @@ const serializeAnalysisResult = (analysisResult) => {
           severity: ind.severity,
           explanation: ind.explanation,
           evidence: Array.isArray(ind.evidence)
-            ? ind.evidence.map((ev) => ({
+            ? ind.evidence.map((ev, evIdx) => ({
+                findingId:
+                  typeof ev.findingId === "string" && ev.findingId.trim().length > 0
+                    ? ev.findingId.trim()
+                    : `FND-${ind.code}-${evIdx + 1}`,
                 snippet: ev.snippet,
                 paragraphIndex: ev.paragraphIndex,
                 sentenceIndex:
@@ -205,9 +212,11 @@ export const serializeAssignment = (doc, options = {}) => {
   return {
     id: assignmentId,
     student: doc.student?.toString ? doc.student.toString() : String(doc.student || ""),
+    teacher: doc.teacher?.toString ? doc.teacher.toString() : doc.teacher ? String(doc.teacher) : null,
     title: doc.title,
     course: doc.course || "",
     notes: doc.notes || "",
+    institution: doc.institution || "",
     originalFileName: doc.originalFileName,
     fileName: doc.originalFileName,
     storageKey: doc.storageKey,
@@ -230,11 +239,75 @@ export const serializeAssignment = (doc, options = {}) => {
     submittedDate: formatSubmittedDate(doc.createdAt),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
+    lastReviewedAt: doc.lastReviewedAt || null,
+    findingReviews: Array.isArray(doc.findingReviews) ? doc.findingReviews : [],
+    teacherComments: Array.isArray(doc.teacherComments) ? doc.teacherComments : [],
     analysisResult: serializeAnalysisResult(doc.analysisResult),
     teacherReview: serializeTeacherReview(doc.teacherReview, {
       requestingRole,
     }),
   };
+};
+
+const escapeRegex = (str) =>
+  str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * GET /api/assignments/teachers
+ * Protected endpoint for STUDENT role only.
+ * Returns registered teachers belonging to the student's academic institution.
+ * Returns only safe fields (id, name, email, institution).
+ */
+export const getInstituteTeachers = async (req, res) => {
+  try {
+    if (!req.user || req.user.role !== "STUDENT" || !req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: "Access forbidden. Only students can view available teachers.",
+      });
+    }
+
+    const rawInstitute = req.user.institution;
+    const studentInstitute =
+      typeof rawInstitute === "string" ? rawInstitute.trim() : "";
+
+    if (!studentInstitute) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        teachers: [],
+        message:
+          "No institution is associated with your student account. Please update your profile.",
+      });
+    }
+
+    const escapedInstitute = escapeRegex(studentInstitute);
+    const teachers = await User.find({
+      role: "TEACHER",
+      institution: new RegExp(`^${escapedInstitute}$`, "i"),
+    })
+      .select("_id name email institution")
+      .sort({ name: 1 })
+      .lean();
+
+    const safeTeachers = teachers.map((t) => ({
+      id: t._id.toString(),
+      name: t.name,
+      email: t.email,
+      institution: t.institution || "",
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: safeTeachers.length,
+      teachers: safeTeachers,
+    });
+  } catch (_error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching institute teachers.",
+    });
+  }
 };
 
 /**
@@ -325,6 +398,62 @@ export const uploadAssignment = async (req, res) => {
       }
     }
 
+    // 4. Validate teacher selection (required, valid ObjectId, role TEACHER, matching institute)
+    const rawTeacherId = req.body?.teacherId || req.body?.teacher;
+    if (typeof rawTeacherId !== "string" || !rawTeacherId.trim()) {
+      await safeDeleteUploadedFile(internalFilePath);
+      return res.status(400).json({
+        success: false,
+        message:
+          "Teacher selection is required. Please select a registered teacher from your institution.",
+      });
+    }
+
+    const trimmedTeacherId = rawTeacherId.trim();
+    if (!mongoose.Types.ObjectId.isValid(trimmedTeacherId)) {
+      await safeDeleteUploadedFile(internalFilePath);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid teacher ID format.",
+      });
+    }
+
+    const teacherDoc = await User.findById(trimmedTeacherId)
+      .select("_id name email role institution")
+      .lean();
+
+    if (!teacherDoc) {
+      await safeDeleteUploadedFile(internalFilePath);
+      return res.status(400).json({
+        success: false,
+        message: "Selected teacher does not exist.",
+      });
+    }
+
+    if (teacherDoc.role !== "TEACHER") {
+      await safeDeleteUploadedFile(internalFilePath);
+      return res.status(400).json({
+        success: false,
+        message: "Selected user account is not a teacher.",
+      });
+    }
+
+    const studentInstitute = (req.user?.institution || "").trim().toLowerCase();
+    const teacherInstitute = (teacherDoc.institution || "").trim().toLowerCase();
+
+    if (
+      !studentInstitute ||
+      !teacherInstitute ||
+      studentInstitute !== teacherInstitute
+    ) {
+      await safeDeleteUploadedFile(internalFilePath);
+      return res.status(400).json({
+        success: false,
+        message:
+          "Selected teacher does not belong to your academic institution.",
+      });
+    }
+
     const {
       originalFileName,
       storageKey,
@@ -384,11 +513,20 @@ export const uploadAssignment = async (req, res) => {
     }
 
     // 5. Persist assignment metadata in MongoDB Atlas (always using verified req.user.id)
+    const userInstitution =
+      typeof req.user?.institution === "string"
+        ? req.user.institution.trim()
+        : "";
+    const institutionNormalized = userInstitution.toLowerCase().trim();
+
     const createdAssignment = await Assignment.create({
       student: req.user.id,
+      teacher: teacherDoc._id,
       title: trimmedTitle,
       course: trimmedCourse,
       notes: trimmedNotes,
+      institution: userInstitution,
+      institutionNormalized,
       originalFileName,
       storageKey,
       storagePath: internalFilePath,
@@ -441,8 +579,10 @@ export const uploadAssignment = async (req, res) => {
       analysisResult: safeAssignment.analysisResult,
       teacherReview: safeAssignment.teacherReview,
       title: safeAssignment.title,
+      teacher: safeAssignment.teacher,
       course: safeAssignment.course,
       notes: safeAssignment.notes,
+      institution: safeAssignment.institution,
       assignment: safeAssignment,
     });
   } catch (error) {
@@ -743,6 +883,385 @@ export const analyzeAssignment = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error while executing writing analysis.",
+    });
+  }
+};
+
+/**
+ * GET /api/assignments/:id/evidence
+ * Retrieves the extracted and traceable evidence map for an assignment.
+ * Access policy:
+ * - STUDENT: Must own the assignment.
+ * - TEACHER: Must belong to the same institution (or teacher role authorized).
+ */
+export const getAssignmentEvidence = async (req, res) => {
+  const assignmentId = req.params?.id;
+
+  if (!mongoose.Types.ObjectId.isValid(assignmentId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid assignment ID format.",
+    });
+  }
+
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
+
+  try {
+    const assignment = await Assignment.findById(assignmentId).select("+extractedText");
+
+    if (!assignment) {
+      return res.status(404).json({
+        success: false,
+        message: "Assignment not found.",
+      });
+    }
+
+    // Role-based authorization
+    const isStudent = req.user.role === "STUDENT";
+    const isTeacher = req.user.role === "TEACHER";
+
+    if (isStudent) {
+      const studentId = assignment.student?.toString
+        ? assignment.student.toString()
+        : String(assignment.student);
+      if (studentId !== req.user.id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Access forbidden. You do not own this assignment.",
+        });
+      }
+    } else if (isTeacher) {
+      const assignedTeacherId = assignment.teacher?.toString
+        ? assignment.teacher.toString()
+        : assignment.teacher
+          ? String(assignment.teacher)
+          : null;
+
+      const isOwnerTeacher =
+        assignedTeacherId !== null &&
+        assignedTeacherId === req.user.id.toString();
+
+      if (!isOwnerTeacher) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Access forbidden. You do not have verified teacher ownership of this assignment.",
+        });
+      }
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Access forbidden. Unsupported role.",
+      });
+    }
+
+    if (
+      assignment.analysisStatus !== "Completed" ||
+      !assignment.analysisResult
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: `Analysis evidence is not available because analysis status is '${assignment.analysisStatus}'.`,
+        analysisStatus: assignment.analysisStatus,
+      });
+    }
+
+    const evidenceMap = extractEvidenceMap(
+      assignment.analysisResult,
+      assignment.extractedText || ""
+    );
+
+    // Merge individual finding review decisions onto findings
+    const reviewDecisionsMap = new Map();
+    if (Array.isArray(assignment.findingReviews)) {
+      assignment.findingReviews.forEach((fr) => {
+        if (fr.findingId) {
+          reviewDecisionsMap.set(fr.findingId, {
+            decision: fr.decision,
+            reviewedAt: fr.reviewedAt,
+            notes: fr.notes || "",
+            teacher: fr.teacher?.toString ? fr.teacher.toString() : String(fr.teacher || ""),
+          });
+        }
+      });
+    }
+
+    if (evidenceMap && Array.isArray(evidenceMap.findings)) {
+      evidenceMap.findings = evidenceMap.findings.map((f) => {
+        const review = reviewDecisionsMap.get(f.findingId);
+        return {
+          ...f,
+          reviewDecision: review || {
+            decision: "Pending",
+            reviewedAt: null,
+            notes: "",
+            teacher: null,
+          },
+        };
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      assignmentId: assignment._id.toString(),
+      title: assignment.title,
+      analysisStatus: assignment.analysisStatus,
+      reviewStatus: assignment.reviewStatus,
+      lastReviewedAt: assignment.lastReviewedAt || null,
+      extractedText: assignment.extractedText || "",
+      evidenceMap,
+      findingReviews: Array.isArray(assignment.findingReviews) ? assignment.findingReviews : [],
+      teacherComments: Array.isArray(assignment.teacherComments) ? assignment.teacherComments : [],
+      teacherReview: serializeTeacherReview(assignment.teacherReview, {
+        requestingRole: req.user?.role || "STUDENT",
+      }),
+    });
+  } catch (_error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while extracting evidence map.",
+    });
+  }
+};
+
+/**
+ * GET /api/assignments/:id/review-status
+ * Task 14: Protected endpoint for submission owner or assigned teacher.
+ * Retrieves current review status, finding decisions, teacher feedback, and review date.
+ */
+export const getAssignmentReviewStatus = async (req, res) => {
+  const assignmentId = req.params?.id;
+
+  if (!mongoose.Types.ObjectId.isValid(assignmentId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid assignment ID format.",
+    });
+  }
+
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
+
+  try {
+    const assignment = await Assignment.findById(assignmentId);
+    if (!assignment) {
+      return res.status(404).json({
+        success: false,
+        message: "Assignment not found.",
+      });
+    }
+
+    const isStudent = req.user.role === "STUDENT";
+    const isTeacher = req.user.role === "TEACHER";
+
+    if (isStudent) {
+      const studentId = assignment.student?.toString
+        ? assignment.student.toString()
+        : String(assignment.student);
+      if (studentId !== req.user.id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Access forbidden. You do not own this assignment.",
+        });
+      }
+    } else if (isTeacher) {
+      const assignedTeacherId = assignment.teacher?.toString
+        ? assignment.teacher.toString()
+        : assignment.teacher
+          ? String(assignment.teacher)
+          : null;
+      if (!assignedTeacherId || assignedTeacherId !== req.user.id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Access forbidden. You do not have verified teacher ownership of this assignment.",
+        });
+      }
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Access forbidden. Unsupported role.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      assignmentId: assignment._id.toString(),
+      title: assignment.title,
+      reviewStatus: assignment.reviewStatus,
+      lastReviewedAt: assignment.lastReviewedAt || null,
+      verdict: assignment.teacherReview?.verdict || "Pending",
+      feedbackNotes: assignment.teacherReview?.feedbackNotes || "",
+      findingReviews: Array.isArray(assignment.findingReviews) ? assignment.findingReviews : [],
+      teacherComments: Array.isArray(assignment.teacherComments) ? assignment.teacherComments : [],
+      updatedAt: assignment.updatedAt,
+    });
+  } catch (_error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching assignment review status.",
+    });
+  }
+};
+
+/**
+ * GET /api/assignments/:id/comments
+ * Task 12: Protected endpoint for submission owner or assigned teacher.
+ * Retrieves comments thread for this assignment.
+ */
+export const getAssignmentComments = async (req, res) => {
+  const assignmentId = req.params?.id;
+
+  if (!mongoose.Types.ObjectId.isValid(assignmentId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid assignment ID format.",
+    });
+  }
+
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
+
+  try {
+    const assignment = await Assignment.findById(assignmentId).lean();
+    if (!assignment) {
+      return res.status(404).json({
+        success: false,
+        message: "Assignment not found.",
+      });
+    }
+
+    const isStudent = req.user.role === "STUDENT";
+    const isTeacher = req.user.role === "TEACHER";
+
+    if (isStudent) {
+      const studentId = assignment.student?.toString
+        ? assignment.student.toString()
+        : String(assignment.student);
+      if (studentId !== req.user.id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Access forbidden. You do not own this assignment.",
+        });
+      }
+    } else if (isTeacher) {
+      const assignedTeacherId = assignment.teacher?.toString
+        ? assignment.teacher.toString()
+        : assignment.teacher
+          ? String(assignment.teacher)
+          : null;
+      if (!assignedTeacherId || assignedTeacherId !== req.user.id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Access forbidden. You do not have verified teacher ownership of this assignment.",
+        });
+      }
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Access forbidden. Unsupported role.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      assignmentId: assignment._id.toString(),
+      count: assignment.teacherComments?.length || 0,
+      comments: assignment.teacherComments || [],
+    });
+  } catch (_error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching assignment comments.",
+    });
+  }
+};
+
+/**
+ * GET /api/assignments/:id/audit-trail
+ * Task 13: Protected endpoint for submission owner or assigned teacher.
+ * Retrieves append-only review history for this assignment.
+ */
+export const getAssignmentAuditTrail = async (req, res) => {
+  const assignmentId = req.params?.id;
+
+  if (!mongoose.Types.ObjectId.isValid(assignmentId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid assignment ID format.",
+    });
+  }
+
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
+
+  try {
+    const assignment = await Assignment.findById(assignmentId).lean();
+    if (!assignment) {
+      return res.status(404).json({
+        success: false,
+        message: "Assignment not found.",
+      });
+    }
+
+    const isStudent = req.user.role === "STUDENT";
+    const isTeacher = req.user.role === "TEACHER";
+
+    if (isStudent) {
+      const studentId = assignment.student?.toString
+        ? assignment.student.toString()
+        : String(assignment.student);
+      if (studentId !== req.user.id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Access forbidden. You do not own this assignment.",
+        });
+      }
+    } else if (isTeacher) {
+      const assignedTeacherId = assignment.teacher?.toString
+        ? assignment.teacher.toString()
+        : assignment.teacher
+          ? String(assignment.teacher)
+          : null;
+      if (!assignedTeacherId || assignedTeacherId !== req.user.id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Access forbidden. You do not have verified teacher ownership of this assignment.",
+        });
+      }
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Access forbidden. Unsupported role.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      assignmentId: assignment._id.toString(),
+      count: assignment.auditTrail?.length || 0,
+      auditTrail: assignment.auditTrail || [],
+    });
+  } catch (_error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching assignment audit trail.",
     });
   }
 };

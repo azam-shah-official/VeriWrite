@@ -26,3 +26,6 @@ Thumbs.db
 # Private uploaded files storage
 Backend/storage/
 !Backend/storage/assignments/.gitkeep
+
+# Temporary scratch and debugging files
+scratch/

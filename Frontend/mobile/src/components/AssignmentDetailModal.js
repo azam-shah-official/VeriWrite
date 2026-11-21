@@ -92,12 +92,36 @@ const getAnalysisDetails = (status, analysisResult) => {
 };
 
 const getReviewDetails = (status) => {
-  if (status === "Completed") {
+  if (status === "Completed" || status === "Reviewed") {
     return {
-      label: "Completed",
+      label: "Reviewed",
       dotColor: "#10B981",
       textColorClass: "text-[#10B981]",
       explanation: "Instructor review is complete.",
+    };
+  }
+  if (status === "Under Review") {
+    return {
+      label: "Under Review",
+      dotColor: "#38BDF8",
+      textColorClass: "text-[#38BDF8]",
+      explanation: "Instructor is actively evaluating your submission findings.",
+    };
+  }
+  if (status === "Needs Clarification") {
+    return {
+      label: "Needs Clarification",
+      dotColor: "#F59E0B",
+      textColorClass: "text-[#F59E0B]",
+      explanation: "Instructor has requested clarification or follow-up discussion.",
+    };
+  }
+  if (status === "Further Review Required") {
+    return {
+      label: "Further Review",
+      dotColor: "#EF4444",
+      textColorClass: "text-[#F87171]",
+      explanation: "Submission flagged for departmental academic review.",
     };
   }
   if (status === "Needs Human Review") {
@@ -109,7 +133,7 @@ const getReviewDetails = (status) => {
     };
   }
   return {
-    label: "Pending",
+    label: "Pending Review",
     dotColor: "#F59E0B",
     textColorClass: "text-[#F59E0B]",
     explanation: "Teacher has not reviewed the assignment yet.",

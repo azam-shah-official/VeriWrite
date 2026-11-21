@@ -75,8 +75,9 @@ export function buildIndicators(analysisData, options = {}) {
         )
         .slice(0, 3);
 
-      const evidence = sortedByCloseness.map((s) =>
+      const evidence = sortedByCloseness.map((s, idx) =>
         buildEvidenceItem(extractedText, {
+          findingId: `FND-UNIFORM_SENTENCE_CADENCE-${idx + 1}`,
           charStart: s.charStart,
           charEnd: s.charEnd,
           paragraphIndex: s.paragraphIndex,
@@ -110,6 +111,7 @@ export function buildIndicators(analysisData, options = {}) {
     if (severity) {
       // Document-level evidence describing the MATTR score
       const docEvidence = buildEvidenceItem(extractedText, {
+        findingId: "FND-LOW_LEXICAL_DIVERSITY-1",
         charStart: null,
         charEnd: null,
         paragraphIndex: 0,
@@ -137,8 +139,9 @@ export function buildIndicators(analysisData, options = {}) {
 
     // Take up to 4 representative sentences containing transitions
     const sampleSentences = transitionData.matchingSentences.slice(0, 4);
-    const evidence = sampleSentences.map((item) =>
+    const evidence = sampleSentences.map((item, idx) =>
       buildEvidenceItem(extractedText, {
+        findingId: `FND-ELEVATED_TRANSITION_DENSITY-${idx + 1}`,
         charStart: item.sentence.charStart,
         charEnd: item.sentence.charEnd,
         paragraphIndex: item.sentence.paragraphIndex,
@@ -168,8 +171,9 @@ export function buildIndicators(analysisData, options = {}) {
           : "Medium";
 
       const sampleSentences = pattern.sentences.slice(0, 3);
-      const evidence = sampleSentences.map((s) =>
+      const evidence = sampleSentences.map((s, idx) =>
         buildEvidenceItem(extractedText, {
+          findingId: `FND-REPETITIVE_SYNTACTIC_STARTERS-${idx + 1}`,
           charStart: s.charStart,
           charEnd: s.charEnd,
           paragraphIndex: s.paragraphIndex,
@@ -203,7 +207,7 @@ export function buildIndicators(analysisData, options = {}) {
 
     // Map each formulaic match to its containing sentence
     const sampleMatches = formulaicMatches.slice(0, 3);
-    const evidence = sampleMatches.map((m) => {
+    const evidence = sampleMatches.map((m, idx) => {
       // Find sentence enclosing this match
       const enclosingSentence = sentences.find(
         (s) => s.charStart <= m.charStart && s.charEnd >= m.charEnd
@@ -215,6 +219,7 @@ export function buildIndicators(analysisData, options = {}) {
       const sIdx = enclosingSentence ? enclosingSentence.sentenceIndex : null;
 
       return buildEvidenceItem(extractedText, {
+        findingId: `FND-FORMULAIC_PHRASE_USAGE-${idx + 1}`,
         charStart: start,
         charEnd: end,
         paragraphIndex: pIdx,

@@ -3,16 +3,39 @@ import { View, Text, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 const getStatusAppearance = (statusText) => {
-  if (statusText === "Completed" || statusText === "Submitted") {
+  if (
+    statusText === "Completed" ||
+    statusText === "Submitted" ||
+    statusText === "Reviewed" ||
+    statusText === "Approved"
+  ) {
     return {
       dotColor: "#10B981",
       textColorClass: "text-[#10B981]",
     };
   }
-  if (statusText === "Failed") {
+  if (
+    statusText === "Failed" ||
+    statusText === "Further Review Required"
+  ) {
     return {
       dotColor: "#EF4444",
       textColorClass: "text-[#F87171]",
+    };
+  }
+  if (
+    statusText === "Needs Clarification" ||
+    statusText === "Needs Human Review"
+  ) {
+    return {
+      dotColor: "#F59E0B",
+      textColorClass: "text-[#F59E0B]",
+    };
+  }
+  if (statusText === "Under Review") {
+    return {
+      dotColor: "#38BDF8",
+      textColorClass: "text-[#38BDF8]",
     };
   }
   if (statusText === "NotSupported") {
