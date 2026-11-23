@@ -13,7 +13,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { formatFileSizeMB } from "../utils/fileValidation";
 import { fetchAssignmentEvidence } from "../utils/apiClient";
+import { getStoredUserProfile } from "../utils/authStorage";
 import HighlightedEvidenceViewer from "./HighlightedEvidenceViewer";
+import { downloadAndShareReport, printReport } from "../utils/reportPdfGenerator";
 
 const formatDate = (dateString) => {
   if (!dateString) return "Recently";
@@ -155,6 +157,7 @@ const getStudentReviewStatusTheme = (status) => {
 export default function AnalysisReportModal({
   visible,
   assignment,
+  currentUser,
   onClose,
   onReanalyze,
 }) {
@@ -165,6 +168,97 @@ export default function AnalysisReportModal({
   const [evidenceError, setEvidenceError] = useState(null);
   const [activeFindingId, setActiveFindingId] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("ALL");
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isPrintingReport, setIsPrintingReport] = useState(false);
+  const [studentProfile, setStudentProfile] = useState(currentUser || null);
+
+  useEffect(() => {
+    if (currentUser) {
+      setStudentProfile(currentUser);
+      return;
+    }
+    let isMounted = true;
+    getStoredUserProfile().then((profile) => {
+      if (isMounted && profile) {
+        setStudentProfile(profile);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser]);
+
+  const isPrintOrShareCancelled = (err) => {
+    const msg = String(err?.message || err || "").toLowerCase();
+    return (
+      msg.includes("cancel") ||
+      msg.includes("dismiss") ||
+      msg.includes("abort") ||
+      err?.code === "CANCELLED" ||
+      err?.name === "AbortError"
+    );
+  };
+
+  const resolvedAssignment = useMemo(() => {
+    if (!assignment) return null;
+    return {
+      ...assignment,
+      studentName:
+        assignment.studentName ||
+        studentProfile?.name ||
+        "",
+      studentEmail:
+        assignment.studentEmail ||
+        studentProfile?.email ||
+        "",
+      institution:
+        assignment.institution ||
+        studentProfile?.institution ||
+        "",
+    };
+  }, [assignment, studentProfile]);
+
+  const handleDownloadPdf = async () => {
+    if (isDownloadingPdf || isPrintingReport) return;
+    setIsDownloadingPdf(true);
+    try {
+      await downloadAndShareReport({
+        assignment: resolvedAssignment,
+        evidenceData,
+        role: "STUDENT",
+      });
+    } catch (err) {
+      if (!isPrintOrShareCancelled(err)) {
+        Alert.alert(
+          "Download Report Failed",
+          err?.message || "Could not generate PDF report."
+        );
+      }
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
+  const handlePrintReport = async () => {
+    if (isDownloadingPdf || isPrintingReport) return;
+    setIsPrintingReport(true);
+    try {
+      await printReport({
+        assignment: resolvedAssignment,
+        evidenceData,
+        role: "STUDENT",
+      });
+    } catch (err) {
+      if (!isPrintOrShareCancelled(err)) {
+        Alert.alert(
+          "Print Report Failed",
+          err?.message || "Could not open print spooler."
+        );
+      }
+    } finally {
+      setIsPrintingReport(false);
+    }
+  };
 
   const loadEvidence = useCallback(async () => {
     if (!assignment?.id || assignment.analysisStatus !== "Completed") {
@@ -325,6 +419,36 @@ export default function AnalysisReportModal({
         </Pressable>
 
         <View className="flex-row items-center">
+          <Pressable
+            disabled={isDownloadingPdf || isPrintingReport}
+            onPress={handlePrintReport}
+            hitSlop={8}
+            className="w-8 h-8 rounded-xl bg-[#14192C] border border-[#222943] items-center justify-center mr-1.5 active:opacity-75"
+            accessibilityRole="button"
+            accessibilityLabel="Print report"
+          >
+            {isPrintingReport ? (
+              <ActivityIndicator size="small" color="#38BDF8" />
+            ) : (
+              <Ionicons name="print-outline" size={15} color="#38BDF8" />
+            )}
+          </Pressable>
+
+          <Pressable
+            disabled={isDownloadingPdf || isPrintingReport}
+            onPress={handleDownloadPdf}
+            hitSlop={8}
+            className="w-8 h-8 rounded-xl bg-[#0C243B] border border-[#194D7C] items-center justify-center mr-2 active:opacity-75"
+            accessibilityRole="button"
+            accessibilityLabel="Download PDF report"
+          >
+            {isDownloadingPdf ? (
+              <ActivityIndicator size="small" color="#38BDF8" />
+            ) : (
+              <Ionicons name="cloud-download-outline" size={15} color="#38BDF8" />
+            )}
+          </Pressable>
+
           <View className="bg-[#0C1226] border border-[#19244D] rounded-full px-3 py-1 mr-2">
             <Text className="text-[10px] font-bold tracking-[1.5px] text-[#38BDF8] uppercase">
               • ANALYZE • VERIFY • TRUST
@@ -422,6 +546,57 @@ export default function AnalysisReportModal({
 
   const renderActionButtons = () => (
     <View className="mt-4 mb-8">
+      {/* Download and Print Actions */}
+      <View className="flex-row mb-3">
+        <Pressable
+          disabled={isDownloadingPdf || isPrintingReport}
+          onPress={handleDownloadPdf}
+          className="flex-1 h-[46px] bg-[#0284C7] rounded-xl flex-row items-center justify-center mr-1.5 active:opacity-85"
+          accessibilityRole="button"
+          accessibilityLabel="Download PDF report"
+        >
+          {isDownloadingPdf ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons
+                name="cloud-download-outline"
+                size={16}
+                color="#FFFFFF"
+                style={{ marginRight: 6 }}
+              />
+              <Text className="text-[12.5px] font-bold text-white">
+                Download PDF
+              </Text>
+            </>
+          )}
+        </Pressable>
+
+        <Pressable
+          disabled={isDownloadingPdf || isPrintingReport}
+          onPress={handlePrintReport}
+          className="flex-1 h-[46px] bg-[#141C34] border border-[#222E54] rounded-xl flex-row items-center justify-center ml-1.5 active:opacity-85"
+          accessibilityRole="button"
+          accessibilityLabel="Print report"
+        >
+          {isPrintingReport ? (
+            <ActivityIndicator size="small" color="#38BDF8" />
+          ) : (
+            <>
+              <Ionicons
+                name="print-outline"
+                size={16}
+                color="#38BDF8"
+                style={{ marginRight: 6 }}
+              />
+              <Text className="text-[12.5px] font-bold text-white">
+                Print Report
+              </Text>
+            </>
+          )}
+        </Pressable>
+      </View>
+
       {/* Action Buttons */}
       <Pressable
         onPress={handleReanalyzePress}

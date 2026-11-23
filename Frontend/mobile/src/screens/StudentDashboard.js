@@ -1183,6 +1183,7 @@ export default function StudentDashboard({ user, onLogout }) {
       <AnalysisReportModal
         visible={Boolean(reportAssignment)}
         assignment={reportAssignment}
+        currentUser={currentUser}
         onClose={() => setReportAssignment(null)}
         onReanalyze={handleReanalyzeFromReport}
       />

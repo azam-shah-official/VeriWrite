@@ -19,6 +19,7 @@ import {
   fetchTeacherAuditTrail,
 } from "../utils/apiClient";
 import HighlightedEvidenceViewer from "../components/HighlightedEvidenceViewer";
+import { downloadAndShareReport, printReport } from "../utils/reportPdfGenerator";
 
 const formatDate = (dateString) => {
   if (!dateString) return "Recently";
@@ -118,8 +119,100 @@ export default function TeacherEvidenceReviewScreen({
   const [auditTrailList, setAuditTrailList] = useState([]);
   const [isAuditTrailOpen, setIsAuditTrailOpen] = useState(false);
   const [isLoadingAuditTrail, setIsLoadingAuditTrail] = useState(false);
+  const [isAuditTrailLoaded, setIsAuditTrailLoaded] = useState(false);
+
+  // PDF Export and Print states
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isPrintingReport, setIsPrintingReport] = useState(false);
 
   const assignmentId = submission?.id;
+
+  const isPrintOrShareCancelled = (err) => {
+    const msg = String(err?.message || err || "").toLowerCase();
+    return (
+      msg.includes("cancel") ||
+      msg.includes("dismiss") ||
+      msg.includes("abort") ||
+      err?.code === "CANCELLED" ||
+      err?.name === "AbortError"
+    );
+  };
+
+  /**
+   * Verified retrieval of forensic audit trail.
+   * Throws an error on fetch failure to prevent unverified or incomplete records from being certified.
+   */
+  const ensureAuditTrail = async () => {
+    if (isAuditTrailLoaded && Array.isArray(auditTrailList)) {
+      return auditTrailList;
+    }
+    if (!assignmentId) {
+      throw new Error("Missing submission ID for forensic verification.");
+    }
+    const response = await fetchTeacherAuditTrail(assignmentId);
+    if (!response.ok || !response.data?.success || !Array.isArray(response.data?.auditTrail)) {
+      const serverMessage =
+        response.data?.message || "Failed to retrieve verified audit trail records from the server.";
+      throw new Error(`Audit trail verification failed (${serverMessage}). Generation halted to protect evidentiary integrity.`);
+    }
+    setAuditTrailList(response.data.auditTrail);
+    setIsAuditTrailLoaded(true);
+    return response.data.auditTrail;
+  };
+
+  const handleDownloadForensicReport = async () => {
+    if (isDownloadingPdf || isPrintingReport) return;
+    setIsDownloadingPdf(true);
+    try {
+      const trail = await ensureAuditTrail();
+
+      await downloadAndShareReport({
+        submission,
+        evidenceData,
+        role: "TEACHER",
+        auditTrail: trail,
+        findingDecisions,
+        verdict: currentVerdict,
+        feedbackNotes: feedbackText,
+      });
+    } catch (err) {
+      if (!isPrintOrShareCancelled(err)) {
+        Alert.alert(
+          "Forensic Report Export Halted",
+          err?.message || "Could not generate verified forensic PDF report."
+        );
+      }
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
+  const handlePrintForensicReport = async () => {
+    if (isDownloadingPdf || isPrintingReport) return;
+    setIsPrintingReport(true);
+    try {
+      const trail = await ensureAuditTrail();
+
+      await printReport({
+        submission,
+        evidenceData,
+        role: "TEACHER",
+        auditTrail: trail,
+        findingDecisions,
+        verdict: currentVerdict,
+        feedbackNotes: feedbackText,
+      });
+    } catch (err) {
+      if (!isPrintOrShareCancelled(err)) {
+        Alert.alert(
+          "Print Forensic Report Failed",
+          err?.message || "Could not open print spooler."
+        );
+      }
+    } finally {
+      setIsPrintingReport(false);
+    }
+  };
 
   const loadEvidence = useCallback(async () => {
     if (!assignmentId) return;
@@ -265,9 +358,10 @@ export default function TeacherEvidenceReviewScreen({
       const response = await fetchTeacherAuditTrail(assignmentId);
       if (response.ok && Array.isArray(response.data?.auditTrail)) {
         setAuditTrailList(response.data.auditTrail);
+        setIsAuditTrailLoaded(true);
       }
     } catch (_err) {
-      // non-blocking
+      // non-blocking for manual UI toggle
     } finally {
       setIsLoadingAuditTrail(false);
     }
@@ -925,6 +1019,61 @@ export default function TeacherEvidenceReviewScreen({
             <Ionicons name="chevron-forward" size={16} color="#F87171" />
           </Pressable>
 
+          {/* Institutional Dossier Export Card */}
+          <View className="bg-[#0D1224] border border-[#1E293B] rounded-2xl p-4 mb-3">
+            <View className="flex-row items-center justify-between mb-2">
+              <View className="flex-row items-center">
+                <View className="w-7 h-7 rounded-lg bg-[#0284C7]/20 border border-[#0284C7]/40 items-center justify-center mr-2.5">
+                  <Ionicons name="document-text-outline" size={16} color="#38BDF8" />
+                </View>
+                <View>
+                  <Text className="text-[12.5px] font-bold text-white">
+                    Institutional Evidence Dossier
+                  </Text>
+                  <Text className="text-[10px] text-[#64748B]">
+                    Tamper-evident forensic PDF with full audit trail
+                  </Text>
+                </View>
+              </View>
+            </View>
+            
+            <View className="flex-row items-center mt-2">
+              <Pressable
+                disabled={isDownloadingPdf || isPrintingReport}
+                onPress={handleDownloadForensicReport}
+                className="flex-1 h-[40px] bg-[#0284C7] rounded-xl flex-row items-center justify-center mr-1.5 active:opacity-85"
+                accessibilityRole="button"
+                accessibilityLabel="Download PDF Dossier"
+              >
+                {isDownloadingPdf ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="cloud-download-outline" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text className="text-[11.5px] font-bold text-white">Export PDF Dossier</Text>
+                  </>
+                )}
+              </Pressable>
+              
+              <Pressable
+                disabled={isDownloadingPdf || isPrintingReport}
+                onPress={handlePrintForensicReport}
+                className="flex-1 h-[40px] bg-[#141C33] border border-[#233159] rounded-xl flex-row items-center justify-center ml-1.5 active:opacity-85"
+                accessibilityRole="button"
+                accessibilityLabel="Print Evidence Dossier"
+              >
+                {isPrintingReport ? (
+                  <ActivityIndicator size="small" color="#38BDF8" />
+                ) : (
+                  <>
+                    <Ionicons name="print-outline" size={15} color="#CBD5E1" style={{ marginRight: 6 }} />
+                    <Text className="text-[11.5px] font-bold text-[#E2E8F0]">Print Dossier</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+          </View>
+
           {/* Faculty Discretion Disclaimer */}
           <View className="bg-[#080B14] border border-[#162038] rounded-xl p-3 flex-row items-start">
             <Ionicons
@@ -967,6 +1116,34 @@ export default function TeacherEvidenceReviewScreen({
         </View>
 
         <View className="flex-row items-center">
+          <Pressable
+            disabled={isDownloadingPdf || isPrintingReport}
+            onPress={handlePrintForensicReport}
+            hitSlop={8}
+            className="w-8 h-8 rounded-xl bg-[#14192C] border border-[#222943] items-center justify-center mr-2 active:opacity-75"
+            accessibilityRole="button"
+            accessibilityLabel="Print Report"
+          >
+            {isPrintingReport ? (
+              <ActivityIndicator size="small" color="#38BDF8" />
+            ) : (
+              <Ionicons name="print-outline" size={15} color="#CBD5E1" />
+            )}
+          </Pressable>
+          <Pressable
+            disabled={isDownloadingPdf || isPrintingReport}
+            onPress={handleDownloadForensicReport}
+            hitSlop={8}
+            className="w-8 h-8 rounded-xl bg-[#0284C7]/20 border border-[#0284C7]/40 items-center justify-center mr-2 active:opacity-75"
+            accessibilityRole="button"
+            accessibilityLabel="Download Forensic Report"
+          >
+            {isDownloadingPdf ? (
+              <ActivityIndicator size="small" color="#38BDF8" />
+            ) : (
+              <Ionicons name="cloud-download-outline" size={15} color="#38BDF8" />
+            )}
+          </Pressable>
           <View className="w-8 h-8 rounded-full bg-[#182038] border border-[#25325C] items-center justify-center">
             <Ionicons name="person" size={14} color="#818CF8" />
           </View>
