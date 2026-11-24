@@ -146,11 +146,18 @@ const serializeTeacherReview = (teacherReview, options = {}) => {
   const safeFeedbackNotes =
     isTeacher || isExplicitlyShared ? teacherReview.feedbackNotes || "" : "";
 
+  const reviewerId = teacherReview.reviewedBy
+    ? (teacherReview.reviewedBy._id?.toString() ||
+        teacherReview.reviewedBy.toString())
+    : null;
+  const reviewerName =
+    typeof teacherReview.reviewedBy === "object" && teacherReview.reviewedBy?.name
+      ? teacherReview.reviewedBy.name
+      : null;
+
   return {
-    reviewedBy: teacherReview.reviewedBy
-      ? (teacherReview.reviewedBy._id?.toString() ||
-          teacherReview.reviewedBy.toString())
-      : null,
+    reviewedBy: reviewerId,
+    reviewerName: isTeacher ? reviewerName : undefined,
     reviewedAt: teacherReview.reviewedAt || null,
     verdict: teacherReview.verdict || "Pending",
     feedbackNotes: safeFeedbackNotes,
@@ -912,7 +919,9 @@ export const getAssignmentEvidence = async (req, res) => {
   }
 
   try {
-    const assignment = await Assignment.findById(assignmentId).select("+extractedText");
+    const assignment = await Assignment.findById(assignmentId)
+      .select("+extractedText")
+      .populate("teacherReview.reviewedBy", "name email");
 
     if (!assignment) {
       return res.status(404).json({
@@ -1015,6 +1024,14 @@ export const getAssignmentEvidence = async (req, res) => {
       lastReviewedAt: assignment.lastReviewedAt || null,
       extractedText: assignment.extractedText || "",
       evidenceMap,
+      metrics: assignment.analysisResult?.metrics || null,
+      analysisResult: assignment.analysisResult
+        ? {
+            signalLevel: assignment.analysisResult.signalLevel,
+            analysisConfidence: assignment.analysisResult.analysisConfidence,
+            metrics: assignment.analysisResult.metrics || null,
+          }
+        : null,
       findingReviews: Array.isArray(assignment.findingReviews) ? assignment.findingReviews : [],
       teacherComments: Array.isArray(assignment.teacherComments) ? assignment.teacherComments : [],
       teacherReview: serializeTeacherReview(assignment.teacherReview, {

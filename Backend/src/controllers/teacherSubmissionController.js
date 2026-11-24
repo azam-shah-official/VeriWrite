@@ -172,6 +172,7 @@ export const getTeacherSubmissions = async (req, res) => {
 
     const submissions = await Assignment.find(filter)
       .populate("student", "name email")
+      .populate("teacherReview.reviewedBy", "name email")
       .sort({ createdAt: -1 })
       .lean();
 
@@ -183,13 +184,16 @@ export const getTeacherSubmissions = async (req, res) => {
       studentName: doc.student?.name || "Student",
       studentEmail: doc.student?.email || "",
       submittedDate: doc.submittedDate || doc.createdAt,
+      createdAt: doc.createdAt,
       analysisStatus: doc.analysisStatus,
       reviewStatus: doc.reviewStatus,
       lastReviewedAt: doc.lastReviewedAt || null,
       signalLevel: doc.analysisResult?.signalLevel || "Pending",
       confidence: doc.analysisResult?.analysisConfidence || "Medium",
+      metrics: doc.analysisResult?.metrics || null,
       verdict: doc.teacherReview?.verdict || "Pending",
       feedbackNotes: doc.teacherReview?.feedbackNotes || "",
+      reviewerName: doc.teacherReview?.reviewedBy?.name || null,
       isSharedWithStudent: Boolean(doc.teacherReview?.isSharedWithStudent),
       findingReviews: doc.findingReviews || [],
       teacherComments: doc.teacherComments || [],

@@ -165,6 +165,10 @@ export default function TeacherEvidenceReviewScreen({
     setIsDownloadingPdf(true);
     try {
       const trail = await ensureAuditTrail();
+      const persistedReviewerName =
+        evidenceData?.teacherReview?.reviewerName ||
+        submission?.reviewerName ||
+        null;
 
       await downloadAndShareReport({
         submission,
@@ -174,6 +178,7 @@ export default function TeacherEvidenceReviewScreen({
         findingDecisions,
         verdict: currentVerdict,
         feedbackNotes: feedbackText,
+        reviewerName: persistedReviewerName,
       });
     } catch (err) {
       if (!isPrintOrShareCancelled(err)) {
@@ -192,6 +197,10 @@ export default function TeacherEvidenceReviewScreen({
     setIsPrintingReport(true);
     try {
       const trail = await ensureAuditTrail();
+      const persistedReviewerName =
+        evidenceData?.teacherReview?.reviewerName ||
+        submission?.reviewerName ||
+        null;
 
       await printReport({
         submission,
@@ -201,6 +210,7 @@ export default function TeacherEvidenceReviewScreen({
         findingDecisions,
         verdict: currentVerdict,
         feedbackNotes: feedbackText,
+        reviewerName: persistedReviewerName,
       });
     } catch (err) {
       if (!isPrintOrShareCancelled(err)) {

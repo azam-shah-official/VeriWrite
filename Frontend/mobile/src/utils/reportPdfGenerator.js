@@ -26,20 +26,28 @@ export function escapeHtml(text) {
 
 /**
  * Formats ISO date string into readable academic format.
+ * Provides safe fallback for pre-formatted strings to ensure Hermes compatibility.
  */
 function formatDate(dateString) {
   if (!dateString) return "N/A";
   try {
     const d = new Date(dateString);
-    if (isNaN(d.getTime())) return "N/A";
-    return d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
   } catch (_e) {
-    return "N/A";
+    // continue to fallback
   }
+
+  const str = String(dateString).trim();
+  if (str && str !== "-" && str.toLowerCase() !== "invalid date") {
+    return str;
+  }
+  return "N/A";
 }
 
 /**
@@ -49,39 +57,53 @@ function formatDateTime(dateString) {
   if (!dateString) return "N/A";
   try {
     const d = new Date(dateString);
-    if (isNaN(d.getTime())) return "N/A";
-    return d.toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
-    });
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      });
+    }
   } catch (_e) {
-    return "N/A";
+    // continue to fallback
   }
+
+  const str = String(dateString).trim();
+  if (str && str !== "-" && str.toLowerCase() !== "invalid date") {
+    return str;
+  }
+  return "N/A";
 }
 
 /**
  * Normalizes input data from either student assignment or teacher submission objects.
  */
 function normalizeReportData(inputData = {}, role = "STUDENT") {
-  const item = inputData.submission || inputData.assignment || {};
+  const item = inputData.submission || inputData.assignment || inputData.item || inputData;
   const evidenceData = inputData.evidenceData || null;
 
-  const assignmentId = String(item.id || item._id || inputData.assignmentId || "");
+  const assignmentId = String(item.id || item._id || evidenceData?.assignmentId || inputData.assignmentId || "");
   const idShort = assignmentId ? assignmentId.slice(-5).toUpperCase() : "VERIFIED";
 
-  const title = item.title || "Assignment Submission";
-  const course = item.course || "General Course";
-  const studentName = item.studentName || item.student?.name || "Student";
-  const studentEmail = item.studentEmail || item.student?.email || "";
-  const institution = item.institution || item.student?.institution || "Academic Institution";
-  const submittedDate = item.submittedDate || item.createdAt || null;
-  const wordCount = typeof item.wordCount === "number" ? item.wordCount : null;
-  const fileName = item.originalFileName || item.fileName || item.title || "Document";
+  const title = item.title || evidenceData?.assignmentTitle || inputData.assignmentTitle || "Assignment Submission";
+  const course = item.course || evidenceData?.courseName || inputData.courseName || "General Course";
+  const studentName = item.studentName || item.student?.name || evidenceData?.studentName || "Student";
+  const studentEmail = item.studentEmail || item.student?.email || evidenceData?.studentEmail || "";
+  const institution = item.institution || item.student?.institution || evidenceData?.institution || "Academic Institution";
+  const submittedDate =
+    item.createdAt ||
+    item.submittedDate ||
+    evidenceData?.createdAt ||
+    evidenceData?.submittedDate ||
+    inputData.createdAt ||
+    inputData.submittedDate ||
+    null;
+  const wordCount = typeof item.wordCount === "number" ? item.wordCount : typeof evidenceData?.wordCount === "number" ? evidenceData.wordCount : null;
+  const fileName = item.originalFileName || item.fileName || evidenceData?.originalFileName || evidenceData?.fileName || item.title || "Document";
   const fileSize = typeof item.fileSize === "number" ? (item.fileSize / (1024 * 1024)).toFixed(2) + " MB" : null;
 
   const analysisResult = item.analysisResult || evidenceData?.analysisResult || {};
@@ -93,7 +115,12 @@ function normalizeReportData(inputData = {}, role = "STUDENT") {
         (typeof item.analysisConfidence === "number" ? `${item.analysisConfidence}%` : item.analysisConfidence) ||
         "Medium";
   const analyzedAt = analysisResult.analyzedAt || item.analyzedAt || submittedDate || null;
-  const metrics = analysisResult.metrics || item.stylometricMetrics || item.metrics || {};
+  const metrics =
+    analysisResult.metrics ||
+    evidenceData?.metrics ||
+    item.metrics ||
+    item.stylometricMetrics ||
+    {};
 
   const mattr =
     typeof metrics.mattr === "number"
@@ -109,9 +136,13 @@ function normalizeReportData(inputData = {}, role = "STUDENT") {
       ? (metrics.burstinessScore > 1 ? metrics.burstinessScore / 100 : metrics.burstinessScore)
       : typeof metrics.sentenceLengthVariation === "number"
         ? metrics.sentenceLengthVariation
-        : typeof metrics.sentenceVariety === "number"
-          ? (metrics.sentenceVariety > 1 ? metrics.sentenceVariety / 100 : metrics.sentenceVariety)
-          : null;
+        : typeof metrics.cadenceCV === "number"
+          ? (metrics.cadenceCV > 1 ? metrics.cadenceCV / 100 : metrics.cadenceCV)
+          : typeof metrics.sentenceCadenceCV === "number"
+            ? (metrics.sentenceCadenceCV > 1 ? metrics.sentenceCadenceCV / 100 : metrics.sentenceCadenceCV)
+            : typeof metrics.sentenceVariety === "number"
+              ? (metrics.sentenceVariety > 1 ? metrics.sentenceVariety / 100 : metrics.sentenceVariety)
+              : null;
 
   const transitionDensity =
     typeof metrics.transitionDensityScore === "number"
@@ -262,14 +293,8 @@ function normalizeReportData(inputData = {}, role = "STUDENT") {
     item.feedbackNotes ||
     "";
 
-  const reviewedBy =
-    inputData.reviewedBy ||
-    evidenceData?.teacherReview?.reviewedBy ||
-    item.teacherReview?.reviewedBy ||
-    item.humanReview?.reviewedBy ||
-    item.reviewedBy ||
-    item.teacherName ||
-    "";
+  const auditTrail =
+    inputData.auditTrail || evidenceData?.auditTrail || item.auditTrail || [];
 
   const reviewedAt =
     evidenceData?.lastReviewedAt ||
@@ -279,11 +304,75 @@ function normalizeReportData(inputData = {}, role = "STUDENT") {
     item.humanReview?.reviewedAt ||
     null;
 
+  const normStatus = String(reviewStatus || "").trim().toLowerCase();
+  const normVerdict = String(verdict || "").trim().toLowerCase();
+  const isPendingOrUnreviewed =
+    (!reviewedAt && (
+      !reviewStatus ||
+      /^(pending|pending review|needs human review|unreviewed)$/.test(normStatus) ||
+      normVerdict === "pending"
+    )) ||
+    (normStatus === "pending review" && normVerdict === "pending") ||
+    normStatus === "pending";
+
+  let reviewedBy = "";
+  if (isPendingOrUnreviewed) {
+    reviewedBy = "Not Reviewed";
+  } else {
+    const isObjectId = (val) => typeof val === "string" && /^[a-fA-F0-9]{24}$/.test(val.trim());
+    let reviewerCandidate =
+      evidenceData?.teacherReview?.reviewerName ||
+      (typeof evidenceData?.teacherReview?.reviewedBy === "object"
+        ? evidenceData?.teacherReview?.reviewedBy?.name
+        : "") ||
+      (typeof evidenceData?.teacherReview?.reviewedBy === "string" && !isObjectId(evidenceData.teacherReview.reviewedBy)
+        ? evidenceData.teacherReview.reviewedBy
+        : "") ||
+      item.reviewerName ||
+      item.teacherReview?.reviewerName ||
+      (typeof item.teacherReview?.reviewedBy === "object"
+        ? item.teacherReview?.reviewedBy?.name
+        : "") ||
+      (typeof item.teacherReview?.reviewedBy === "string" && !isObjectId(item.teacherReview.reviewedBy)
+        ? item.teacherReview.reviewedBy
+        : "") ||
+      evidenceData?.reviewerName ||
+      (typeof item.reviewedBy === "string" && !isObjectId(item.reviewedBy) ? item.reviewedBy : "") ||
+      "";
+
+    // If reviewerCandidate is missing or an unpopulated 24-char ObjectId, resolve from auditTrail
+    if (!reviewerCandidate || isObjectId(reviewerCandidate)) {
+      const reviewActions = [
+        "OVERALL_VERDICT_SUBMITTED",
+        "OVERALL_VERDICT_CHANGED",
+        "REVIEW_STATUS_CHANGED",
+        "FINDING_DECISION_UPDATED",
+      ];
+      for (let i = auditTrail.length - 1; i >= 0; i--) {
+        const entry = auditTrail[i];
+        if (entry && reviewActions.includes(entry.action)) {
+          const candidate =
+            entry.teacherName ||
+            (typeof entry.performedBy === "string" && !isObjectId(entry.performedBy) ? entry.performedBy : "") ||
+            entry.performedBy?.name ||
+            entry.details?.teacherName ||
+            "";
+          if (candidate && !isObjectId(candidate)) {
+            reviewerCandidate = candidate;
+            break;
+          }
+        }
+      }
+      if (isObjectId(reviewerCandidate)) {
+        reviewerCandidate = "";
+      }
+    }
+
+    reviewedBy = reviewerCandidate || "";
+  }
+
   const teacherComments =
     evidenceData?.teacherComments || item.teacherComments || inputData.teacherComments || [];
-
-  const auditTrail =
-    inputData.auditTrail || evidenceData?.auditTrail || item.auditTrail || [];
 
   return {
     assignmentId,
@@ -395,7 +484,7 @@ export function generateReportHtml(inputData, options = {}) {
   <title>VeriWrite ${isTeacher ? "Forensic Integrity" : "Analysis"} Report - ${escapeHtml(data.idShort)}</title>
   <style>
     @page {
-      margin: 14mm 12mm;
+      margin: 12mm 12mm;
       size: A4 portrait;
     }
     * {
@@ -429,8 +518,8 @@ export function generateReportHtml(inputData, options = {}) {
     /* Header Bar */
     .report-header {
       border-bottom: 2px solid #0284C7;
-      padding-bottom: 14px;
-      margin-bottom: 18px;
+      padding-bottom: 10px;
+      margin-bottom: 12px;
     }
     .header-top {
       display: flex;
@@ -541,7 +630,7 @@ export function generateReportHtml(inputData, options = {}) {
       display: table;
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 16px;
+      margin-bottom: 10px;
       background: #F8FAFC;
       border: 1px solid #E2E8F0;
       border-radius: 8px;
@@ -553,7 +642,7 @@ export function generateReportHtml(inputData, options = {}) {
     }
     .metadata-cell {
       display: table-cell;
-      padding: 6px 12px;
+      padding: 5px 10px;
       border-bottom: 1px solid #E2E8F0;
       width: 50%;
     }
@@ -576,15 +665,15 @@ export function generateReportHtml(inputData, options = {}) {
       background: #FFFFFF;
       border: 1px solid #CBD5E1;
       border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 16px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
     }
     .signal-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
-      padding-bottom: 8px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
       border-bottom: 1px dashed #E2E8F0;
     }
     .signal-badge {
@@ -603,9 +692,9 @@ export function generateReportHtml(inputData, options = {}) {
       color: #475569;
     }
     .signal-desc {
-      font-size: 9pt;
+      font-size: 8.5pt;
       color: #475569;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       font-style: italic;
     }
 
@@ -733,8 +822,8 @@ export function generateReportHtml(inputData, options = {}) {
       background: #F8FAFC;
       border: 1px solid #CBD5E1;
       border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 16px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
     }
     .review-row {
       display: flex;
@@ -767,19 +856,26 @@ export function generateReportHtml(inputData, options = {}) {
       width: 100%;
       border-collapse: collapse;
       font-size: 8pt;
-      margin-bottom: 16px;
+      margin-bottom: 10px;
+    }
+    .audit-table thead {
+      display: table-header-group;
+    }
+    .audit-table tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     .audit-table th {
       background: #0F172A;
       color: #FFFFFF;
       text-align: left;
-      padding: 5px 8px;
+      padding: 4px 6px;
       font-size: 7.5pt;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
     .audit-table td {
-      padding: 5px 8px;
+      padding: 4px 6px;
       border-bottom: 1px solid #E2E8F0;
       color: #334155;
     }
@@ -791,8 +887,8 @@ export function generateReportHtml(inputData, options = {}) {
     .signoff-section {
       display: flex;
       justify-content: space-between;
-      margin-top: 20px;
-      padding-top: 14px;
+      margin-top: 14px;
+      padding-top: 10px;
       border-top: 1px solid #CBD5E1;
     }
     .sign-box {
@@ -800,7 +896,7 @@ export function generateReportHtml(inputData, options = {}) {
     }
     .sign-line {
       border-bottom: 1px solid #475569;
-      height: 32px;
+      height: 24px;
       margin-bottom: 4px;
     }
     .sign-title {
@@ -813,8 +909,8 @@ export function generateReportHtml(inputData, options = {}) {
       background: #F1F5F9;
       border: 1px solid #CBD5E1;
       border-radius: 6px;
-      padding: 8px 10px;
-      margin-top: 14px;
+      padding: 6px 10px;
+      margin-top: 8px;
       font-size: 7pt;
       color: #475569;
       line-height: 1.35;
@@ -823,9 +919,9 @@ export function generateReportHtml(inputData, options = {}) {
       text-align: center;
       font-size: 7pt;
       color: #94A3B8;
-      margin-top: 12px;
+      margin-top: 8px;
       border-top: 1px solid #F1F5F9;
-      padding-top: 6px;
+      padding-top: 4px;
     }
   </style>
 </head>
@@ -911,7 +1007,7 @@ export function generateReportHtml(inputData, options = {}) {
           <div class="metric-value">
             ${data.mattr !== null ? escapeHtml(Number(data.mattr).toFixed(2)) : "N/A"}
           </div>
-          <div class="metric-hint">50-word window Type-Token Ratio. Natural human prose: 0.68–0.85.</div>
+          <div class="metric-hint">50-word rolling Type-Token Ratio. Lower diversity flagged when &lt;0.70 (Medium) and &lt;0.62 (High).</div>
         </div>
         <div class="metric-card">
           <div class="metric-title">Sentence Cadence CV</div>
@@ -1057,8 +1153,8 @@ export function generateReportHtml(inputData, options = {}) {
 
     ${isTeacher ? `
       <!-- Audit Trail Table (Teacher Forensic View Only) -->
-      <div class="avoid-break" style="margin-top: 14px;">
-        <div class="section-title">Append-Only Forensic Audit Trail (${data.auditTrail.length} Records)</div>
+      <div style="margin-top: 10px;">
+        <div class="section-title">Forensic Audit Trail (${data.auditTrail.length} Records)</div>
         ${data.auditTrail.length === 0 ? `
           <div style="font-size: 8.5pt; color: #64748B; font-style: italic; padding: 10px 12px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 6px;">
             Verified audit log retrieved: No logged audit events recorded for this submission yet.
@@ -1108,7 +1204,7 @@ export function generateReportHtml(inputData, options = {}) {
       </div>
 
       <div class="report-footer">
-        VeriWrite Academic Integrity System • 256-Bit Cryptographic Forensic Audit Standard • Verified Institutional Record
+        VeriWrite Academic Integrity System • Forensic Review & Audit Trail Record
       </div>
     </div>
   </div>
